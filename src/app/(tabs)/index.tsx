@@ -145,7 +145,7 @@ export default function Dashboard() {
           <>
             <View style={styles.emptySection}>
               <Image 
-                  source={isDark ? require('../../assets/images/hero_dark.webp') : require('../../assets/images/hero_light.webp')} 
+                  source={isDark ? require('../../../assets/images/hero_dark.webp') : require('../../../assets/images/hero_light.webp')} 
                   style={{ width: '100%', height: 260 }} 
                   resizeMode="contain" 
                 />
