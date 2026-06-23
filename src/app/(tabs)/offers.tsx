@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Linking, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -14,49 +14,38 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Animation, BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useStore } from '@/store/use-store';
+import { savingsTips } from '@/lib/subscriptions';
+import { OFFERS, OFFER_CATEGORIES } from '@/constants/offers';
 
-const FILTERS = ['All', 'Streaming', 'Productivity', 'Gaming'];
-
-const offers = [
-  {
-    icon: 'film.fill',
-    fallback: '🎬',
-    title: 'Netflix Premium',
-    desc: '3 months free with annual plan',
-    tag: 'Save 25%',
-    tagColor: '#a0d57c',
-  },
-  {
-    icon: 'music.note',
-    fallback: '🎵',
-    title: 'Spotify Student',
-    desc: '50% off for verified students',
-    tag: 'Student Deal',
-    tagColor: '#abd28f',
-  },
-  {
-    icon: 'icloud.fill',
-    fallback: '☁️',
-    title: 'Google One',
-    desc: 'Get 100GB free for 6 months',
-    tag: 'Trial',
-    tagColor: '#c8c6c5',
-  },
-  {
-    icon: 'gamecontroller.fill',
-    fallback: '🎮',
-    title: 'Xbox Game Pass',
-    desc: 'First month for $1',
-    tag: 'Limited',
-    tagColor: '#ffb4ab',
-  },
-];
+const FILTERS = OFFER_CATEGORIES;
 
 export default function OffersScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [selectedFilter, setSelectedFilter] = useState(0);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const subscriptions = useStore((s) => s.subscriptions);
+  const categories = useStore((s) => s.categories);
+  const tips = useMemo(() => savingsTips(subscriptions, categories), [subscriptions, categories]);
+
+  function openDeal(offer: { url?: string; title: string }) {
+    const target =
+      offer.url ?? `https://www.google.com/search?q=${encodeURIComponent(`${offer.title} deal offer`)}`;
+    Linking.openURL(target);
+  }
+
+  const activeCategory = FILTERS[selectedFilter];
+  const filteredOffers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return OFFERS.filter((o) => {
+      const matchesCat = activeCategory === 'All' || o.category === activeCategory;
+      const matchesQuery = !q || o.title.toLowerCase().includes(q) || o.desc.toLowerCase().includes(q);
+      return matchesCat && matchesQuery;
+    });
+  }, [activeCategory, query]);
 
   // Animated border color on search focus
   const borderProgress = useSharedValue(0);
@@ -93,9 +82,48 @@ export default function OffersScreen() {
         {/* Header + description */}
         <View>
           <ThemedText type="small" themeColor="textSecondary" style={styles.desc}>
-            Unlock exclusive savings and trial opportunities curated for your spending profile.
+            Personalized ways to save based on your subscriptions, plus curated deals.
           </ThemedText>
         </View>
+
+        {/* Personalized savings (computed from the user's own data) */}
+        {tips.length > 0 && (
+          <View style={{ gap: 12 }}>
+            <ThemedText type="subtitle" style={{ fontSize: 18 }}>
+              Ways to Save
+            </ThemedText>
+            {tips.map((tip) => (
+              <View
+                key={tip.id}
+                style={[
+                  styles.tipCard,
+                  { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                ]}
+              >
+                <View style={[styles.tipIcon, { backgroundColor: `${tip.color}1a` }]}>
+                  <Icon name={tip.icon} size={20} color={tip.color} fallback={tip.fallback} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="default" style={{ fontWeight: '600' }}>
+                    {tip.title}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {tip.desc}
+                  </ThemedText>
+                </View>
+                {tip.amount && (
+                  <ThemedText type="small" style={{ color: tip.color, fontWeight: '700' }}>
+                    {tip.amount}
+                  </ThemedText>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
+        <ThemedText type="subtitle" style={{ fontSize: 18, marginTop: 4 }}>
+          Deals
+        </ThemedText>
 
         {/* Search box with animated border */}
         <Animated.View
@@ -112,13 +140,19 @@ export default function OffersScreen() {
             placeholder="Search offers..."
             placeholderTextColor="rgba(194,201,184,0.5)"
             style={[styles.searchInput, { color: theme.text }]}
+            value={query}
+            onChangeText={setQuery}
             onFocus={handleSearchFocus}
             onBlur={handleSearchBlur}
           />
         </Animated.View>
 
         {/* Filter chips */}
-        <View style={styles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
           {FILTERS.map((chip, i) => {
             const isActive = i === selectedFilter;
             return (
@@ -143,11 +177,18 @@ export default function OffersScreen() {
               </AnimatedPressable>
             );
           })}
-        </View>
+        </ScrollView>
 
         {/* Offer cards — staggered FadeInUp */}
         <View style={styles.offerList}>
-          {offers.map((offer, i) => (
+          {filteredOffers.length === 0 && (
+            <View style={[styles.emptyCard, { borderColor: 'rgba(255,255,255,0.05)' }]}>
+              <ThemedText type="small" themeColor="textSecondary" style={{ textAlign: 'center' }}>
+                No offers match your search.
+              </ThemedText>
+            </View>
+          )}
+          {filteredOffers.map((offer, i) => (
             <View
               key={i}
               style={[
@@ -186,6 +227,9 @@ export default function OffersScreen() {
                 variant="glow"
                 glowColor="rgba(160,213,124,0.30)"
                 style={[styles.claimBtn, { backgroundColor: theme.primaryContainer }]}
+                onPress={() => openDeal(offer)}
+                accessibilityLabel={`Claim ${offer.title}`}
+                accessibilityRole="button"
               >
                 <ThemedText style={{ color: theme.onPrimaryContainer, fontWeight: '600' }}>
                   Claim Offer
@@ -221,6 +265,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   offerList: { gap: 16 },
+  emptyCard: { borderRadius: 16, borderWidth: 1, padding: 32, alignItems: 'center' },
+  tipCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  tipIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   offerCard: {
     borderRadius: 16,
     padding: 16,

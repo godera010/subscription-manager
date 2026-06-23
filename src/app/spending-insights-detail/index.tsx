@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,47 +10,69 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-
-const alerts = [
-  {
-    icon: 'exclamationmark.triangle.fill',
-    fallback: '⚠️',
-    title: 'Spending Spike',
-    desc: 'You spent 15% more on Entertainment this month due to Netflix price hike.',
-    color: '#ffb4ab',
-    bgColor: 'rgba(255,180,171,0.1)',
-    borderColor: 'rgba(255,180,171,0.1)',
-  },
-  {
-    icon: 'sparkle',
-    fallback: '✨',
-    title: 'Potential Saving',
-    desc: 'Switch to an annual plan for Adobe CC and save $120/year.',
-    color: '#a0d57c',
-    bgColor: 'rgba(160,213,124,0.08)',
-    borderColor: 'rgba(160,213,124,0.1)',
-  },
-  {
-    icon: 'chart.bar.fill',
-    fallback: '📊',
-    title: 'Unused Service',
-    desc: "You haven't used Hulu in 45 days. Consider canceling.",
-    color: '#abd28f',
-    bgColor: 'rgba(171,210,143,0.08)',
-    borderColor: 'rgba(171,210,143,0.1)',
-  },
-];
-
-const categoryBreakdown = [
-  { icon: 'film.fill', fallback: '🎬', name: 'Entertainment', amount: '$184.00', percent: 45, color: '#a0d57c' },
-  { icon: 'briefcase.fill', fallback: '💼', name: 'Productivity', amount: '$92.50', percent: 25, color: '#abd28f' },
-  { icon: 'bolt.fill', fallback: '⚡', name: 'Utilities', amount: '$122.00', percent: 30, color: '#c8c6c5' },
-  { icon: 'gamecontroller.fill', fallback: '🎮', name: 'Gaming', amount: '$30.00', percent: 10, color: '#ffb4ab' },
-];
+import { useStore } from '@/store/use-store';
+import {
+  categoryBreakdown as buildBreakdown,
+  monthlyCostOf,
+  totalMonthlySpend,
+  yearlyCostOf,
+} from '@/lib/subscriptions';
 
 export default function SpendingInsightsDetail() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const subscriptions = useStore((s) => s.subscriptions);
+  const categories = useStore((s) => s.categories);
+
+  const monthly = useMemo(() => totalMonthlySpend(subscriptions), [subscriptions]);
+  const yearly = monthly * 12;
+  const breakdown = useMemo(
+    () => buildBreakdown(subscriptions, categories),
+    [subscriptions, categories],
+  );
+  const top = breakdown[0];
+  const isEmpty = subscriptions.length === 0;
+
+  // Most expensive subscription (by monthly cost)
+  const priciest = useMemo(() => {
+    if (subscriptions.length === 0) return null;
+    return [...subscriptions].sort((a, b) => monthlyCostOf(b) - monthlyCostOf(a))[0];
+  }, [subscriptions]);
+
+  // Honest, computed alerts
+  const alerts = useMemo(() => {
+    const out: { icon: string; fallback: string; title: string; desc: string; color: string; bg: string; border: string }[] = [];
+    if (top) {
+      out.push({
+        icon: 'chart.pie.fill', fallback: '🥧',
+        title: 'Top Category',
+        desc: `${top.name} is ${top.percent}% of your monthly spend ($${top.amount.toFixed(2)}).`,
+        color: top.color, bg: `${top.color}14`, border: `${top.color}1a`,
+      });
+    }
+    if (priciest) {
+      out.push({
+        icon: 'arrow.up.forward', fallback: '⬆️',
+        title: 'Largest Subscription',
+        desc: `${priciest.name} costs $${monthlyCostOf(priciest).toFixed(2)}/mo ($${yearlyCostOf(priciest).toFixed(2)}/yr).`,
+        color: '#ffb4ab', bg: 'rgba(255,180,171,0.1)', border: 'rgba(255,180,171,0.1)',
+      });
+    }
+    out.push({
+      icon: 'calendar', fallback: '📅',
+      title: 'Annual Outlook',
+      desc: `At this rate you'll spend $${yearly.toFixed(2)} over the next 12 months.`,
+      color: '#a0d57c', bg: 'rgba(160,213,124,0.08)', border: 'rgba(160,213,124,0.1)',
+    });
+    return out;
+  }, [top, priciest, yearly]);
+
+  const barData = breakdown.slice(0, 6).map((c, i) => ({
+    label: c.name.length > 5 ? c.name.slice(0, 4) + '…' : c.name,
+    value: c.percent,
+    active: i === 0,
+    color: c.color,
+  }));
 
   return (
     <ThemedView style={styles.container}>
@@ -70,186 +93,151 @@ export default function SpendingInsightsDetail() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.heroGrid}>
-          <View
-            style={[
-              styles.heroMain,
-              {
-                backgroundColor: theme.surfaceContainer,
-                borderColor: 'rgba(255,255,255,0.05)',
-              },
-            ]}
-          >
-            <View style={[styles.heroGlow, { backgroundColor: 'rgba(160,213,124,0.06)' }]} />
-            <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
-              Current Month Spend
+        {isEmpty ? (
+          <View style={styles.emptyState}>
+            <Icon name="chart.bar" size={48} color={theme.textSecondary} fallback="📊" />
+            <ThemedText type="subtitle" style={{ marginTop: 12 }}>Nothing to break down yet</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={{ textAlign: 'center', marginTop: 4 }}>
+              Add subscriptions to see category insights.
             </ThemedText>
-            <ThemedText type="title" style={{ fontSize: 44, color: theme.primary }}>
-              $428.50
-            </ThemedText>
-            <View style={styles.trendRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Icon name="arrow.up.forward" size={12} color={theme.error} fallback="↑" />
-                <ThemedText type="small" style={{ color: theme.error }}>12.5% vs last month</ThemedText>
-              </View>
-            </View>
-            <View style={[styles.heroMeta, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
-              <View>
-                <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase' }}>
-                  Average Spend
-                </ThemedText>
-                <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-                  $380.20
-                </ThemedText>
-              </View>
-              <View>
-                <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase' }}>
-                  Projected Spend
-                </ThemedText>
-                <ThemedText type="subtitle" style={{ fontSize: 20, color: theme.secondary }}>
-                  $455.00
-                </ThemedText>
-              </View>
-            </View>
           </View>
-
-          <View
-            style={[
-              styles.donutCard,
-              { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-            ]}
-          >
-            <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
-              Top Category
-            </ThemedText>
-            <View style={styles.donut}>
-              <View style={styles.donutInner}>
-                <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-                  72%
+        ) : (
+          <>
+            <View style={styles.heroGrid}>
+              <View
+                style={[
+                  styles.heroMain,
+                  { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                ]}
+              >
+                <View style={[styles.heroGlow, { backgroundColor: 'rgba(160,213,124,0.06)' }]} />
+                <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Current Month Spend
                 </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase' }}>
-                  Entertainment
+                <ThemedText type="title" style={{ fontSize: 44, color: theme.primary }}>
+                  ${monthly.toFixed(2)}
                 </ThemedText>
-              </View>
-            </View>
-            <View
-              style={[styles.viewAllBtn, { backgroundColor: theme.primaryContainer }]}
-            >
-              <ThemedText type="small" style={{ color: theme.onPrimaryContainer, textTransform: 'uppercase', letterSpacing: 1 }}>
-                VIEW ALL CATEGORIES
-              </ThemedText>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.bentoGrid}>
-          <View
-            style={[
-              styles.chartCard,
-              { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-            ]}
-          >
-            <View style={styles.chartHeader}>
-              <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-                Monthly Comparison
-              </ThemedText>
-            </View>
-            <BarChart
-              data={[
-                { label: 'JAN', value: 24 },
-                { label: 'FEB', value: 32 },
-                { label: 'MAR', value: 28 },
-                { label: 'APR', value: 40 },
-                { label: 'MAY', value: 36 },
-                { label: 'JUN', value: 44, active: true },
-              ]}
-            />
-          </View>
-
-          <View
-            style={[
-              styles.alertsCard,
-              { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-            ]}
-          >
-            <ThemedText type="subtitle" style={{ fontSize: 20, marginBottom: 24 }}>
-              Smart Alerts
-            </ThemedText>
-            <View style={styles.alertList}>
-              {alerts.map((alert, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.alertRow,
-                    { backgroundColor: alert.bgColor, borderColor: alert.borderColor },
-                  ]}
-                >
-                  <Icon name={alert.icon} size={18} color={alert.color} fallback={alert.fallback} />
-                  <View style={{ flex: 1 }}>
-                    <ThemedText type="default" style={{ fontWeight: '600' }}>
-                      {alert.title}
+                <View style={[styles.heroMeta, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
+                  <View>
+                    <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase' }}>
+                      Yearly Total
                     </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {alert.desc}
+                    <ThemedText type="subtitle" style={{ fontSize: 20 }}>
+                      ${yearly.toFixed(0)}
+                    </ThemedText>
+                  </View>
+                  <View>
+                    <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase' }}>
+                      Subscriptions
+                    </ThemedText>
+                    <ThemedText type="subtitle" style={{ fontSize: 20, color: theme.secondary }}>
+                      {subscriptions.length}
                     </ThemedText>
                   </View>
                 </View>
-              ))}
-            </View>
-          </View>
-        </View>
+              </View>
 
-        <View
-          style={[
-            styles.categoryCard,
-            { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-          ]}
-        >
-          <View style={styles.catHeader}>
-            <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-              Category Breakdown
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.primary }}>
-              Manage Categories →
-            </ThemedText>
-          </View>
-          <View style={styles.catList}>
-            {categoryBreakdown.map((cat, i) => (
-              <View key={i} style={styles.catItem}>
-                <View style={styles.catRow}>
-                  <View style={styles.catLeft}>
-                    <View
-                      style={[
-                        styles.catIcon,
-                        { backgroundColor: `${cat.color}15` },
-                      ]}
-                    >
-                      <Icon name={cat.icon} size={20} color={cat.color} fallback={cat.fallback} />
+              {top && (
+                <View
+                  style={[
+                    styles.donutCard,
+                    { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                  ]}
+                >
+                  <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Top Category
+                  </ThemedText>
+                  <View style={[styles.donut, { borderColor: `${top.color}40` }]}>
+                    <View style={styles.donutInner}>
+                      <ThemedText type="subtitle" style={{ fontSize: 20 }}>
+                        {top.percent}%
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase' }}>
+                        {top.name}
+                      </ThemedText>
                     </View>
-                    <ThemedText type="default">{cat.name}</ThemedText>
                   </View>
-                  <ThemedText style={{ fontWeight: '500' }}>{cat.amount}</ThemedText>
                 </View>
-                <View
-                  style={[
-                    styles.catTrack,
-                    { backgroundColor: theme.surfaceContainerHighest },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.catFill,
-                      {
-                        backgroundColor: cat.color,
-                        width: `${cat.percent}%`,
-                      },
-                    ]}
-                  />
+              )}
+            </View>
+
+            <View style={styles.bentoGrid}>
+              <View
+                style={[
+                  styles.chartCard,
+                  { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                ]}
+              >
+                <View style={styles.chartHeader}>
+                  <ThemedText type="subtitle" style={{ fontSize: 20 }}>
+                    Spend by Category
+                  </ThemedText>
+                </View>
+                <BarChart data={barData} />
+              </View>
+
+              <View
+                style={[
+                  styles.alertsCard,
+                  { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                ]}
+              >
+                <ThemedText type="subtitle" style={{ fontSize: 20, marginBottom: 24 }}>
+                  Smart Alerts
+                </ThemedText>
+                <View style={styles.alertList}>
+                  {alerts.map((alert, i) => (
+                    <View
+                      key={i}
+                      style={[styles.alertRow, { backgroundColor: alert.bg, borderColor: alert.border }]}
+                    >
+                      <Icon name={alert.icon} size={18} color={alert.color} fallback={alert.fallback} />
+                      <View style={{ flex: 1 }}>
+                        <ThemedText type="default" style={{ fontWeight: '600' }}>
+                          {alert.title}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {alert.desc}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               </View>
-            ))}
-          </View>
-        </View>
+            </View>
+
+            <View
+              style={[
+                styles.categoryCard,
+                { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+              ]}
+            >
+              <View style={styles.catHeader}>
+                <ThemedText type="subtitle" style={{ fontSize: 20 }}>
+                  Category Breakdown
+                </ThemedText>
+              </View>
+              <View style={styles.catList}>
+                {breakdown.map((cat, i) => (
+                  <View key={i} style={styles.catItem}>
+                    <View style={styles.catRow}>
+                      <View style={styles.catLeft}>
+                        <View style={[styles.catIcon, { backgroundColor: `${cat.color}15` }]}>
+                          <Icon name={cat.icon} size={20} color={cat.color} fallback={cat.fallback ?? '•'} />
+                        </View>
+                        <ThemedText type="default">{cat.name}</ThemedText>
+                      </View>
+                      <ThemedText style={{ fontWeight: '500' }}>${cat.amount.toFixed(2)}</ThemedText>
+                    </View>
+                    <View style={[styles.catTrack, { backgroundColor: theme.surfaceContainerHighest }]}>
+                      <View style={[styles.catFill, { backgroundColor: cat.color, width: `${cat.percent}%` }]} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </>
+        )}
       </ScrollView>
     </ThemedView>
   );
@@ -259,6 +247,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, gap: 24, paddingTop: 16 },
+  emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80, paddingHorizontal: 24 },
   heroGrid: { gap: 16 },
   heroMain: {
     borderRadius: 16,
@@ -276,7 +265,6 @@ const styles = StyleSheet.create({
     height: 256,
     borderRadius: 128,
   },
-  trendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   heroMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -301,12 +289,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   donutInner: { alignItems: 'center' },
-  viewAllBtn: {
-    width: '100%',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
   bentoGrid: { gap: 16 },
   chartCard: {
     borderRadius: 16,

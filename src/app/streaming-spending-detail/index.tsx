@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -6,24 +7,31 @@ import { Icon } from '@/components/prism/Icon';
 import { TopBar } from '@/components/prism/TopBar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Routes } from '@/constants/routes';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useStore } from '@/store/use-store';
+import { monthlyCostOf } from '@/lib/subscriptions';
 
-const services = [
-  { icon: 'film.fill', fallback: '🎬', name: 'Netflix', plan: 'Premium 4K', price: '$15.99', usage: '45h', change: '+5%', changeColor: '#ffb4ab' },
-  { icon: 'music.note', fallback: '🎵', name: 'Spotify', plan: 'Family Plan', price: '$16.99', usage: '30h', change: '+2%', changeColor: '#ffb4ab' },
-  { icon: 'tv.fill', fallback: '📺', name: 'Hulu', plan: 'No Ads', price: '$14.99', usage: '12h', change: '-8%', changeColor: '#a0d57c' },
-  { icon: 'headphones', fallback: '🎧', name: 'Apple Music', plan: 'Individual', price: '$10.99', usage: '28h', change: '0%', changeColor: '#c2c9b8' },
-  { icon: 'tv.fill', fallback: '📺', name: 'Disney+', plan: 'Premium', price: '$13.99', usage: '18h', change: '+15%', changeColor: '#ffb4ab' },
-  { icon: 'film.fill', fallback: '🎬', name: 'HBO Max', plan: 'Ad-Free', price: '$15.99', usage: '8h', change: '-22%', changeColor: '#a0d57c' },
-];
-
-const totalStreaming = '$88.94';
-const avgPerService = '$14.82';
+// Category treated as "streaming" for this view.
+const STREAMING_CATEGORY = 'Entertainment';
 
 export default function StreamingSpendingDetail() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const subscriptions = useStore((s) => s.subscriptions);
+
+  const services = useMemo(
+    () =>
+      subscriptions
+        .filter((s) => s.category === STREAMING_CATEGORY)
+        .sort((a, b) => monthlyCostOf(b) - monthlyCostOf(a)),
+    [subscriptions],
+  );
+
+  const total = useMemo(() => services.reduce((sum, s) => sum + monthlyCostOf(s), 0), [services]);
+  const avg = services.length > 0 ? total / services.length : 0;
+  const maxCost = services[0] ? monthlyCostOf(services[0]) : 0;
 
   return (
     <ThemedView style={styles.container}>
@@ -55,89 +63,90 @@ export default function StreamingSpendingDetail() {
             Total Streaming Spend
           </ThemedText>
           <ThemedText type="title" style={{ fontSize: 44, color: theme.primary }}>
-            {totalStreaming}
+            ${total.toFixed(2)}
           </ThemedText>
           <View style={styles.summaryMeta}>
             <View>
               <ThemedText type="small" themeColor="textSecondary">Services</ThemedText>
-              <ThemedText type="default" style={{ fontWeight: '600' }}>6</ThemedText>
+              <ThemedText type="default" style={{ fontWeight: '600' }}>{services.length}</ThemedText>
             </View>
             <View>
               <ThemedText type="small" themeColor="textSecondary">Avg/Service</ThemedText>
-              <ThemedText type="default" style={{ fontWeight: '600' }}>{avgPerService}</ThemedText>
+              <ThemedText type="default" style={{ fontWeight: '600' }}>${avg.toFixed(2)}</ThemedText>
             </View>
             <View>
-              <ThemedText type="small" themeColor="textSecondary">vs Last Month</ThemedText>
-              <ThemedText type="default" style={{ fontWeight: '600', color: '#ffb4ab' }}>+4.2%</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Per Year</ThemedText>
+              <ThemedText type="default" style={{ fontWeight: '600' }}>${(total * 12).toFixed(0)}</ThemedText>
             </View>
           </View>
         </View>
 
-        <View style={styles.headerRow}>
-          <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-            All Services
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.primary }}>Sort: Cost ↓</ThemedText>
-        </View>
-
-        <View style={styles.serviceList}>
-          {services.map((svc, i) => (
-            <View
-              key={i}
-              style={[
-                styles.serviceCard,
-                { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-              ]}
-            >
-              <View style={styles.serviceRow}>
-                <View style={styles.serviceLeft}>
-                  <View
-                    style={[
-                      styles.serviceIcon,
-                      { backgroundColor: theme.surfaceContainerHighest },
-                    ]}
-                  >
-                    <Icon name={svc.icon} size={24} color={theme.primary} fallback={svc.fallback} />
-                  </View>
-                  <View>
-                    <ThemedText type="default" style={{ fontWeight: '600' }}>
-                      {svc.name}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {svc.plan}
-                    </ThemedText>
-                  </View>
-                </View>
-                <View style={styles.serviceRight}>
-                  <ThemedText type="default" style={{ fontWeight: '600' }}>
-                    {svc.price}
-                  </ThemedText>
-                  <ThemedText type="small" style={{ color: svc.changeColor }}>
-                    {svc.change}
-                  </ThemedText>
-                </View>
-              </View>
-              <View style={[styles.serviceDivider, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Usage: {svc.usage}/mo
-                </ThemedText>
-                <View
-                  style={[
-                    styles.usageTrack,
-                    { backgroundColor: theme.surfaceContainerHighest },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.usageFill,
-                      { backgroundColor: theme.primary, width: `${40 + i * 8}%` },
-                    ]}
-                  />
-                </View>
-              </View>
+        {services.length === 0 ? (
+          <View style={[styles.emptyCard, { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' }]}>
+            <Icon name="tv" size={40} color={theme.textSecondary} fallback="📺" />
+            <ThemedText type="default" themeColor="textSecondary" style={{ textAlign: 'center', marginTop: 8 }}>
+              No {STREAMING_CATEGORY} subscriptions yet.
+            </ThemedText>
+          </View>
+        ) : (
+          <>
+            <View style={styles.headerRow}>
+              <ThemedText type="subtitle" style={{ fontSize: 20 }}>
+                All Services
+              </ThemedText>
+              <ThemedText type="small" style={{ color: theme.primary }}>Sort: Cost ↓</ThemedText>
             </View>
-          ))}
-        </View>
+
+            <View style={styles.serviceList}>
+              {services.map((svc) => {
+                const m = monthlyCostOf(svc);
+                const share = maxCost > 0 ? (m / maxCost) * 100 : 0;
+                return (
+                  <Pressable
+                    key={svc.id}
+                    style={[
+                      styles.serviceCard,
+                      { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                    ]}
+                    onPress={() => router.push({ pathname: Routes.SUBSCRIPTION_DETAIL, params: { id: svc.id } } as any)}
+                  >
+                    <View style={styles.serviceRow}>
+                      <View style={styles.serviceLeft}>
+                        <View style={[styles.serviceIcon, { backgroundColor: theme.surfaceContainerHighest }]}>
+                          <Icon name={svc.icon} size={24} color={theme.primary} fallback={svc.fallback ?? '📺'} />
+                        </View>
+                        <View>
+                          <ThemedText type="default" style={{ fontWeight: '600' }}>
+                            {svc.name}
+                          </ThemedText>
+                          <ThemedText type="small" themeColor="textSecondary">
+                            {svc.plan || svc.billingCycle}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <View style={styles.serviceRight}>
+                        <ThemedText type="default" style={{ fontWeight: '600' }}>
+                          ${svc.cost.toFixed(2)}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {svc.billingCycle}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <View style={[styles.serviceDivider, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        ${m.toFixed(2)}/mo
+                      </ThemedText>
+                      <View style={[styles.usageTrack, { backgroundColor: theme.surfaceContainerHighest }]}>
+                        <View style={[styles.usageFill, { backgroundColor: theme.primary, width: `${share}%` }]} />
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        )}
       </ScrollView>
     </ThemedView>
   );
@@ -171,6 +180,7 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,0.05)',
     marginTop: 8,
   },
+  emptyCard: { borderRadius: 16, padding: 32, borderWidth: 1, alignItems: 'center' },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

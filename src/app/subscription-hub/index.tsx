@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,41 +9,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-
-const categories = [
-  {
-    name: 'Entertainment',
-    icon: 'film.fill',
-    fallback: '🎬',
-    total: '$184.00',
-    subs: '4 subscriptions',
-    color: '#a0d57c',
-  },
-  {
-    name: 'Productivity',
-    icon: 'briefcase.fill',
-    fallback: '💼',
-    total: '$92.50',
-    subs: '3 subscriptions',
-    color: '#abd28f',
-  },
-  {
-    name: 'Utilities',
-    icon: 'bolt.fill',
-    fallback: '⚡',
-    total: '$122.00',
-    subs: '2 subscriptions',
-    color: '#c8c6c5',
-  },
-  {
-    name: 'Gaming',
-    icon: 'gamecontroller.fill',
-    fallback: '🎮',
-    total: '$30.00',
-    subs: '1 subscription',
-    color: '#ffb4ab',
-  },
-];
+import { useStore } from '@/store/use-store';
+import {
+  categoryBreakdown as buildBreakdown,
+  formatShortDate,
+  nextRenewal,
+  totalMonthlySpend,
+} from '@/lib/subscriptions';
 
 const quickActions = [
   { icon: 'plus.circle.fill', fallback: '➕', label: 'Add New', href: '/add-subscription' },
@@ -54,6 +27,17 @@ const quickActions = [
 export default function SubscriptionHub() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const subscriptions = useStore((s) => s.subscriptions);
+  const categories = useStore((s) => s.categories);
+
+  const monthly = useMemo(() => totalMonthlySpend(subscriptions), [subscriptions]);
+  const avg = subscriptions.length > 0 ? monthly / subscriptions.length : 0;
+  const next = useMemo(() => nextRenewal(subscriptions), [subscriptions]);
+  const breakdown = useMemo(
+    () => buildBreakdown(subscriptions, categories),
+    [subscriptions, categories],
+  );
+  const maxCat = breakdown[0]?.amount ?? 0;
 
   return (
     <ThemedView style={styles.container}>
@@ -84,20 +68,22 @@ export default function SubscriptionHub() {
             Total Monthly Spend
           </ThemedText>
           <ThemedText type="title" style={{ fontSize: 44 }}>
-            $428.50
+            ${monthly.toFixed(2)}
           </ThemedText>
           <View style={styles.totalMeta}>
             <View>
               <ThemedText type="small" themeColor="textSecondary">Active Subs</ThemedText>
-              <ThemedText type="default" style={{ fontWeight: '600' }}>10</ThemedText>
+              <ThemedText type="default" style={{ fontWeight: '600' }}>{subscriptions.length}</ThemedText>
             </View>
             <View>
               <ThemedText type="small" themeColor="textSecondary">Avg. Cost</ThemedText>
-              <ThemedText type="default" style={{ fontWeight: '600' }}>$42.85</ThemedText>
+              <ThemedText type="default" style={{ fontWeight: '600' }}>${avg.toFixed(2)}</ThemedText>
             </View>
             <View>
               <ThemedText type="small" themeColor="textSecondary">Next Renewal</ThemedText>
-              <ThemedText type="default" style={{ fontWeight: '600' }}>Jan 28</ThemedText>
+              <ThemedText type="default" style={{ fontWeight: '600' }}>
+                {next ? formatShortDate(next.renewalDate) : '—'}
+              </ThemedText>
             </View>
           </View>
         </View>
@@ -122,54 +108,50 @@ export default function SubscriptionHub() {
           Categories
         </ThemedText>
 
-        <View style={styles.categoryList}>
-          {categories.map((cat, i) => (
-            <View
-              key={i}
-              style={[
-                styles.categoryCard,
-                { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-              ]}
-            >
-              <View style={styles.categoryRow}>
-                <View style={styles.categoryLeft}>
-                  <View
-                    style={[
-                      styles.catIcon,
-                      { backgroundColor: `${cat.color}15` },
-                    ]}
-                  >
-                    <Icon name={cat.icon} size={20} color={cat.color} fallback={cat.fallback} />
-                  </View>
-                  <View>
-                    <ThemedText type="default" style={{ fontWeight: '600' }}>
-                      {cat.name}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {cat.subs}
-                    </ThemedText>
-                  </View>
-                </View>
-                <ThemedText type="default" style={{ fontWeight: '600' }}>
-                  {cat.total}
-                </ThemedText>
-              </View>
+        {breakdown.length === 0 ? (
+          <View style={[styles.emptyCard, { borderColor: 'rgba(255,255,255,0.05)' }]}>
+            <ThemedText type="small" themeColor="textSecondary">No categories yet. Add a subscription to begin.</ThemedText>
+          </View>
+        ) : (
+          <View style={styles.categoryList}>
+            {breakdown.map((cat, i) => (
               <View
+                key={i}
                 style={[
-                  styles.progressTrack,
-                  { backgroundColor: theme.surfaceContainerHighest },
+                  styles.categoryCard,
+                  { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
                 ]}
               >
-                <View
-                  style={[
-                    styles.progressFill,
-                    { backgroundColor: cat.color, width: `${20 + i * 10}%` },
-                  ]}
-                />
+                <View style={styles.categoryRow}>
+                  <View style={styles.categoryLeft}>
+                    <View style={[styles.catIcon, { backgroundColor: `${cat.color}15` }]}>
+                      <Icon name={cat.icon} size={20} color={cat.color} fallback={cat.fallback ?? '•'} />
+                    </View>
+                    <View>
+                      <ThemedText type="default" style={{ fontWeight: '600' }}>
+                        {cat.name}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {cat.count} subscription{cat.count !== 1 ? 's' : ''}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  <ThemedText type="default" style={{ fontWeight: '600' }}>
+                    ${cat.amount.toFixed(2)}
+                  </ThemedText>
+                </View>
+                <View style={[styles.progressTrack, { backgroundColor: theme.surfaceContainerHighest }]}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { backgroundColor: cat.color, width: `${maxCat > 0 ? (cat.amount / maxCat) * 100 : 0}%` },
+                    ]}
+                  />
+                </View>
               </View>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </ThemedView>
   );
@@ -204,6 +186,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
+  emptyCard: { borderRadius: 12, borderWidth: 1, padding: 24, alignItems: 'center' },
   categoryList: { gap: 12 },
   categoryCard: {
     borderRadius: 12,

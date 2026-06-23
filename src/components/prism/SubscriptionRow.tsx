@@ -7,8 +7,14 @@
  *  - Larger icon box (borderRadius 16), subtle card shadow
  *  - Optional urgency highlight (e.g. renewal in < 3 days)
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { AnimatedPressable } from '@/components/prism/AnimatedPressable';
 import { Icon } from '@/components/prism/Icon';
@@ -24,6 +30,8 @@ type SubscriptionRowProps = {
   priceNote?: string;
   accentColor?: string;
   urgent?: boolean;
+  /** briefly pulses a colored highlight when set true (e.g. just-added row) */
+  highlight?: boolean;
   onPress?: () => void;
   /** stagger index for entry animation delay (ms) */
   index?: number;
@@ -38,11 +46,25 @@ export const SubscriptionRow = React.memo(function SubscriptionRow({
   priceNote,
   accentColor,
   urgent = false,
+  highlight = false,
   onPress,
   index = 0,
 }: SubscriptionRowProps) {
   const theme = useTheme();
   const accent = accentColor ?? theme.primary;
+
+  const glow = useSharedValue(0);
+  useEffect(() => {
+    if (highlight) {
+      glow.value = 0;
+      glow.value = withSequence(
+        withTiming(1, { duration: 320 }),
+        withTiming(0, { duration: 1900 }),
+      );
+    }
+  }, [highlight]);
+
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: glow.value * 0.22 }));
 
   return (
     <View>
@@ -51,7 +73,7 @@ export const SubscriptionRow = React.memo(function SubscriptionRow({
           styles.container,
           {
             backgroundColor: theme.surfaceContainerLow,
-            borderColor: urgent
+            borderColor: urgent || highlight
               ? `${accent}40`
               : 'rgba(255,255,255,0.05)',
             borderWidth: 1,
@@ -60,6 +82,12 @@ export const SubscriptionRow = React.memo(function SubscriptionRow({
         onPress={onPress}
         pressedScale={0.97}
       >
+        {/* Highlight pulse overlay (just-added) */}
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { backgroundColor: accent }, overlayStyle]}
+        />
+
         {/* Left accent strip */}
         <View style={[styles.accentBar, { backgroundColor: accent }]} />
 

@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/prism/Icon';
@@ -9,52 +9,45 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useStore } from '@/store/use-store';
+import { formatShortDate } from '@/lib/subscriptions';
 
-const subscriptions = [
-  {
-    icon: 'film.fill',
-    fallback: 'Movie',
-    name: 'Netflix',
-    price: '$15.99',
-    subtitle: 'Premium 4K • Cancel anytime',
-    steps: [
-      'Go to Account Settings',
-      'Select Membership & Billing',
-      'Confirm Cancellation',
-    ],
-  },
-  {
-    icon: 'paintpalette.fill',
-    fallback: 'Design',
-    name: 'Adobe CC',
-    price: '$52.99',
-    subtitle: 'Annual • Early termination fee may apply',
-    steps: [
-      'Log in to Adobe Account',
-      'Go to Plans & Payment',
-      'Cancel your subscription',
-    ],
-  },
-  {
-    icon: 'music.note',
-    fallback: 'Music',
-    name: 'Spotify',
-    price: '$9.99',
-    subtitle: 'Family Plan',
-  },
-  {
-    icon: 'square.and.arrow.down',
-    fallback: 'Save',
-    name: 'Loom',
-    price: '$12.50',
-    subtitle: 'Business • Monthly',
-  },
+const GENERIC_STEPS = [
+  'Open the provider\'s website or app and sign in.',
+  'Go to Account → Subscription or Billing settings.',
+  'Select Cancel and confirm to stop future renewals.',
 ];
 
 export default function CancelSubscriptions() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [expanded, setExpanded] = useState<number | null>(0);
+  const subscriptions = useStore((s) => s.subscriptions);
+  const removeSubscription = useStore((s) => s.removeSubscription);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return subscriptions;
+    return subscriptions.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.category.toLowerCase().includes(q),
+    );
+  }, [subscriptions, query]);
+
+  function openCancelPage(name: string) {
+    Linking.openURL(`https://www.google.com/search?q=${encodeURIComponent(`how to cancel ${name} subscription`)}`);
+  }
+
+  function confirmRemove(id: string, name: string) {
+    Alert.alert(
+      `Remove ${name}?`,
+      'This removes it from your tracker. It does not cancel the service with the provider.',
+      [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => removeSubscription(id) },
+      ],
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -74,14 +67,12 @@ export default function CancelSubscriptions() {
           { paddingBottom: insets.bottom + Spacing.six },
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View
           style={[
             styles.searchBox,
-            {
-              backgroundColor: theme.surfaceContainerHighest,
-              borderColor: theme.outlineVariant,
-            },
+            { backgroundColor: theme.surfaceContainerHighest, borderColor: theme.outlineVariant },
           ]}
         >
           <Icon name="magnifyingglass" size={16} color={theme.textSecondary} fallback="🔍" />
@@ -89,119 +80,113 @@ export default function CancelSubscriptions() {
             placeholder="Search subscriptions..."
             placeholderTextColor="rgba(194,201,184,0.5)"
             style={[styles.searchInput, { color: theme.text }]}
+            value={query}
+            onChangeText={setQuery}
           />
         </View>
 
         <View style={styles.countRow}>
           <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-            Active Subscriptions
+            Your Subscriptions
           </ThemedText>
-          <View
-            style={[
-              styles.countBadge,
-              { backgroundColor: theme.surfaceContainer },
-            ]}
-          >
+          <View style={[styles.countBadge, { backgroundColor: theme.surfaceContainer }]}>
             <ThemedText type="small" themeColor="textSecondary">
-              {subscriptions.length} Total
+              {filtered.length} {query ? 'Found' : 'Total'}
             </ThemedText>
           </View>
         </View>
 
-        <View style={styles.subList}>
-          {subscriptions.map((sub, i) => (
-            <View
-              key={i}
-              style={[
-                styles.subCard,
-                {
-                  backgroundColor: theme.surfaceContainer,
-                  borderColor: 'rgba(255,255,255,0.05)',
-                },
-              ]}
-            >
-              <Pressable
-                style={styles.subHeader}
-                onPress={() => setExpanded(expanded === i ? null : i)}
-                accessibilityLabel={`Expand ${sub.name} cancellation guide`}
-                accessibilityRole="button"
+        {filtered.length === 0 ? (
+          <View style={[styles.emptyCard, { borderColor: 'rgba(255,255,255,0.05)' }]}>
+            <ThemedText type="small" themeColor="textSecondary" style={{ textAlign: 'center' }}>
+              {query ? 'No matches.' : 'No subscriptions to cancel yet.'}
+            </ThemedText>
+          </View>
+        ) : (
+          <View style={styles.subList}>
+            {filtered.map((sub) => (
+              <View
+                key={sub.id}
+                style={[
+                  styles.subCard,
+                  { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                ]}
               >
-                <View style={styles.subLeft}>
-                  <View
-                    style={[
-                      styles.subIcon,
-                      { backgroundColor: theme.surfaceContainerHighest },
-                    ]}
-                  >
-                    <Icon name={sub.icon} size={20} color={theme.primary} fallback={sub.fallback} />
+                <Pressable
+                  style={styles.subHeader}
+                  onPress={() => setExpanded(expanded === sub.id ? null : sub.id)}
+                  accessibilityLabel={`Expand ${sub.name} cancellation guide`}
+                  accessibilityRole="button"
+                >
+                  <View style={styles.subLeft}>
+                    <View style={[styles.subIcon, { backgroundColor: theme.surfaceContainerHighest }]}>
+                      <Icon name={sub.icon} size={20} color={theme.primary} fallback={sub.fallback ?? '📱'} />
+                    </View>
+                    <View>
+                      <ThemedText type="default" style={{ fontWeight: '600' }}>
+                        {sub.name}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        ${sub.cost.toFixed(2)} • {sub.billingCycle} • Renews {formatShortDate(sub.renewalDate) || '—'}
+                      </ThemedText>
+                    </View>
                   </View>
-                  <View>
-                    <ThemedText type="default" style={{ fontWeight: '600' }}>
-                      {sub.name}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {sub.price}
-                    </ThemedText>
-                  </View>
-                </View>
-                <ThemedText style={{ color: theme.primary, fontSize: 16 }}>
-                  {expanded === i ? '−' : '+'}
-                </ThemedText>
+                  <ThemedText style={{ color: theme.primary, fontSize: 16 }}>
+                    {expanded === sub.id ? '−' : '+'}
+                  </ThemedText>
                 </Pressable>
 
-              {expanded === i && sub.steps && (
-                <View style={[styles.expandedContent, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
-                  <View style={styles.guideHeader}>
-                    <Icon name="info.circle.fill" size={16} color={theme.primary} fallback="ℹ️" />
-                    <ThemedText
-                      type="small"
-                      style={{
-                        color: theme.primary,
-                        textTransform: 'uppercase',
-                        letterSpacing: 1,
-                      }}
-                    >
-                      Cancellation Guide
-                    </ThemedText>
-                  </View>
-                  {sub.steps.map((step, j) => (
-                    <View key={j} style={styles.stepRow}>
-                      <View
-                        style={[
-                          styles.stepNum,
-                          { backgroundColor: 'rgba(160,213,124,0.15)' },
-                        ]}
+                {expanded === sub.id && (
+                  <View style={[styles.expandedContent, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
+                    <View style={styles.guideHeader}>
+                      <Icon name="info.circle.fill" size={16} color={theme.primary} fallback="ℹ️" />
+                      <ThemedText
+                        type="small"
+                        style={{ color: theme.primary, textTransform: 'uppercase', letterSpacing: 1 }}
                       >
-                        <ThemedText type="small" style={{ color: theme.primary }}>
-                          {j + 1}
-                        </ThemedText>
-                      </View>
-                      <ThemedText type="small">{step}</ThemedText>
+                        Cancellation Guide
+                      </ThemedText>
                     </View>
-                  ))}
-                  <View
-                    style={[
-                      styles.visitBtn,
-                      { borderColor: 'rgba(160,213,124,0.3)' },
-                    ]}
-                  >
-                    <ThemedText type="small" style={{ color: theme.primary }}>
-                      Visit Cancellation Page ↗
-                    </ThemedText>
+                    {GENERIC_STEPS.map((step, j) => (
+                      <View key={j} style={styles.stepRow}>
+                        <View style={[styles.stepNum, { backgroundColor: 'rgba(160,213,124,0.15)' }]}>
+                          <ThemedText type="small" style={{ color: theme.primary }}>
+                            {j + 1}
+                          </ThemedText>
+                        </View>
+                        <ThemedText type="small" style={{ flex: 1 }}>{step}</ThemedText>
+                      </View>
+                    ))}
+                    <Pressable
+                      style={[styles.visitBtn, { borderColor: 'rgba(160,213,124,0.3)' }]}
+                      onPress={() => openCancelPage(sub.name)}
+                      accessibilityLabel={`Find cancellation page for ${sub.name}`}
+                    >
+                      <ThemedText type="small" style={{ color: theme.primary }}>
+                        Find Cancellation Page ↗
+                      </ThemedText>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.removeBtn, { borderColor: `${theme.error}55` }]}
+                      onPress={() => confirmRemove(sub.id, sub.name)}
+                      accessibilityLabel={`Remove ${sub.name} from tracker`}
+                    >
+                      <Icon name="trash.fill" size={14} color={theme.error} fallback="🗑" />
+                      <ThemedText type="small" style={{ color: theme.error }}>
+                        Remove from Tracker
+                      </ThemedText>
+                    </Pressable>
                   </View>
-                </View>
-              )}
-            </View>
-          ))}
-        </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
 
         <View
           style={[
             styles.suggestionCard,
-            {
-              backgroundColor: 'rgba(160,213,124,0.03)',
-              borderColor: 'rgba(160,213,124,0.1)',
-            },
+            { backgroundColor: 'rgba(160,213,124,0.03)', borderColor: 'rgba(160,213,124,0.1)' },
           ]}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -211,8 +196,7 @@ export default function CancelSubscriptions() {
             </ThemedText>
           </View>
           <ThemedText type="small" themeColor="textSecondary">
-            Consider pausing instead of canceling. We can help you save without losing access to
-            your services.
+            Before cancelling, check whether pausing or downgrading keeps the features you actually use at a lower cost.
           </ThemedText>
         </View>
       </ScrollView>
@@ -244,6 +228,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 24,
   },
+  emptyCard: { borderRadius: 12, borderWidth: 1, padding: 32, alignItems: 'center' },
   subList: { gap: 12 },
   subCard: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   subHeader: {
@@ -252,7 +237,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
   },
-  subLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  subLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   subIcon: {
     width: 40,
     height: 40,
@@ -282,6 +267,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     marginTop: 8,
+  },
+  removeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
   },
   suggestionCard: {
     borderRadius: 16,

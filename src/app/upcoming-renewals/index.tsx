@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -6,21 +7,20 @@ import { Icon } from '@/components/prism/Icon';
 import { TopBar } from '@/components/prism/TopBar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Routes } from '@/constants/routes';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-
-const renewals = [
-  { icon: 'film.fill', fallback: '🎬', name: 'Netflix Premium', category: 'Entertainment', price: '$15.99', date: 'Today', time: '10:00 AM', status: 'upcoming', borderColor: '#a0d57c' },
-  { icon: 'icloud.fill', fallback: '☁️', name: 'Google One', category: 'Productivity', price: '$2.99', date: 'Today', time: 'Monthly Billing', status: 'paid', borderColor: '#abd28f' },
-  { icon: 'music.note', fallback: '🎵', name: 'Spotify Family', category: 'Entertainment', price: '$16.99', date: 'Oct 23', time: 'Coming up', status: 'upcoming', borderColor: '#a0d57c' },
-  { icon: 'paintpalette.fill', fallback: '🎨', name: 'Adobe CC', category: 'Productivity', price: '$52.99', date: 'Oct 28', time: 'Annual', status: 'upcoming', borderColor: '#a0d57c' },
-  { icon: 'gamecontroller.fill', fallback: '🎮', name: 'Xbox Game Pass', category: 'Gaming', price: '$16.99', date: 'Nov 03', time: 'Monthly', status: 'upcoming', borderColor: '#a0d57c' },
-  { icon: 'tv.fill', fallback: '📺', name: 'Hulu', category: 'Entertainment', price: '$14.99', date: 'Nov 12', time: 'No Ads', status: 'upcoming', borderColor: '#a0d57c' },
-];
+import { useStore } from '@/store/use-store';
+import { daysUntilRenewal, renewalLabel, formatShortDate, upcomingRenewals } from '@/lib/subscriptions';
 
 export default function UpcomingRenewals() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const subscriptions = useStore((s) => s.subscriptions);
+  const categories = useStore((s) => s.categories);
+
+  const renewals = useMemo(() => upcomingRenewals(subscriptions, 30), [subscriptions]);
+  const total = useMemo(() => renewals.reduce((sum, s) => sum + s.cost, 0), [renewals]);
 
   return (
     <ThemedView style={styles.container}>
@@ -49,61 +49,72 @@ export default function UpcomingRenewals() {
         >
           <View style={[styles.heroGlow, { backgroundColor: 'rgba(160,213,124,0.06)' }]} />
           <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
-            Renewals This Month
+            Renewals (Next 30 Days)
           </ThemedText>
           <ThemedText type="title" style={{ fontSize: 40 }}>
-            6
+            {renewals.length}
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Total upcoming: $120.94
+            Total upcoming: ${total.toFixed(2)}
           </ThemedText>
         </View>
 
-        <View style={styles.list}>
-          {renewals.map((item, i) => (
-            <View
-              key={i}
-              style={[
-                styles.renewalCard,
-                {
-                  backgroundColor: theme.surfaceContainer,
-                  borderColor: 'rgba(255,255,255,0.05)',
-                  borderLeftColor: item.borderColor,
-                  borderLeftWidth: 4,
-                },
-              ]}
-            >
-              <View style={styles.renewalRow}>
-                <View style={styles.renewalLeft}>
-                  <View
-                    style={[
-                      styles.renewalIcon,
-                      { backgroundColor: theme.surfaceContainerHigh },
-                    ]}
-                  >
-                    <Icon name={item.icon} size={28} color={theme.primary} fallback={item.fallback} />
+        {renewals.length === 0 ? (
+          <View style={[styles.emptyCard, { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' }]}>
+            <Icon name="checkmark.circle" size={40} color={theme.primary} fallback="✓" />
+            <ThemedText type="default" themeColor="textSecondary" style={{ textAlign: 'center', marginTop: 8 }}>
+              Nothing renewing in the next 30 days.
+            </ThemedText>
+          </View>
+        ) : (
+          <View style={styles.list}>
+            {renewals.map((item) => {
+              const meta = categories.find((c) => c.name === item.category);
+              const urgent = daysUntilRenewal(item) <= 3;
+              const accent = urgent ? theme.error : (meta?.color ?? theme.primary);
+              return (
+                <Pressable
+                  key={item.id}
+                  style={[
+                    styles.renewalCard,
+                    {
+                      backgroundColor: theme.surfaceContainer,
+                      borderColor: 'rgba(255,255,255,0.05)',
+                      borderLeftColor: accent,
+                      borderLeftWidth: 4,
+                    },
+                  ]}
+                  onPress={() => router.push({ pathname: Routes.SUBSCRIPTION_DETAIL, params: { id: item.id } } as any)}
+                  accessibilityLabel={`${item.name} renewal`}
+                >
+                  <View style={styles.renewalRow}>
+                    <View style={styles.renewalLeft}>
+                      <View style={[styles.renewalIcon, { backgroundColor: theme.surfaceContainerHigh }]}>
+                        <Icon name={item.icon} size={28} color={theme.primary} fallback={item.fallback ?? '📱'} />
+                      </View>
+                      <View>
+                        <ThemedText type="default" style={{ fontWeight: '600' }}>
+                          {item.name}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {item.category} • {item.billingCycle}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <View style={styles.renewalRight}>
+                      <ThemedText type="default" style={{ color: theme.primary }}>
+                        ${item.cost.toFixed(2)}
+                      </ThemedText>
+                      <ThemedText type="small" style={{ color: urgent ? theme.error : theme.textSecondary }}>
+                        {renewalLabel(item)} • {formatShortDate(item.renewalDate)}
+                      </ThemedText>
+                    </View>
                   </View>
-                  <View>
-                    <ThemedText type="default" style={{ fontWeight: '600' }}>
-                      {item.name}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {item.category} • {item.time}
-                    </ThemedText>
-                  </View>
-                </View>
-                <View style={styles.renewalRight}>
-                  <ThemedText type="default" style={{ color: theme.primary }}>
-                    {item.price}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {item.date}
-                  </ThemedText>
-                </View>
-              </View>
-            </View>
-          ))}
-        </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
     </ThemedView>
   );
@@ -129,6 +140,7 @@ const styles = StyleSheet.create({
     height: 128,
     borderRadius: 64,
   },
+  emptyCard: { borderRadius: 16, padding: 32, borderWidth: 1, alignItems: 'center' },
   list: { gap: 12 },
   renewalCard: {
     borderRadius: 12,

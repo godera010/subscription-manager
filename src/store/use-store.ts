@@ -18,6 +18,7 @@ interface Store extends AppState {
   updateSubscription: (id: string, updates: Partial<Subscription>) => void;
   setOnboardingCompleted: (v: boolean) => void;
   setThemeMode: (mode: AppState['themeMode']) => void;
+  getSubscriptionById: (id: string) => Subscription | undefined;
   getSubscriptionsByCategory: (category: string) => Subscription[];
   getUpcomingRenewals: (days?: number) => Subscription[];
   getMonthlySpend: () => number;
@@ -85,6 +86,10 @@ export const useStore = create<Store>((set, get) => ({
       persistState({ subscriptions: s.subscriptions, onboardingCompleted: s.onboardingCompleted, categories: s.categories, themeMode: mode });
       return { themeMode: mode };
     });
+  },
+
+  getSubscriptionById: (id) => {
+    return get().subscriptions.find((s) => s.id === id);
   },
 
   getSubscriptionsByCategory: (category) => {

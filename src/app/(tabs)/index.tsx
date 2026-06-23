@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
-import { Platform, ScrollView, StyleSheet, View, Image, ViewStyle, useColorScheme } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, View, Image, ViewStyle, useColorScheme, useWindowDimensions } from 'react-native';
 import Animated, {
+  FadeIn,
   FadeInDown,
   useAnimatedStyle,
   useSharedValue,
@@ -21,6 +22,7 @@ import { Routes } from '@/constants/routes';
 import { Animation, BottomTabInset, GlowColors, Spacing } from '@/constants/theme';
 import { useStore } from '@/store/use-store';
 import { useTheme } from '@/hooks/use-theme';
+import { daysUntilRenewal, formatShortDate, nextRenewal } from '@/lib/subscriptions';
 
 function hexToRgba(hex: string, alpha: number) {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -33,11 +35,14 @@ export default function Dashboard() {
   console.log('Dashboard mounted');
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const subscriptions = useStore((s) => s.subscriptions);
   const themeMode = useStore((s) => s.themeMode);
   const setThemeMode = useStore((s) => s.setThemeMode);
   const colorScheme = useColorScheme();
   const isDark = themeMode === 'dark' || (themeMode === 'system' && colorScheme === 'dark');
+
+  const comingSoon = (feature: string) => Alert.alert(feature, 'This feature is coming soon.');
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -67,9 +72,32 @@ export default function Dashboard() {
   }, [subscriptions]);
 
   const recent = subscriptions.slice(-3).reverse();
-  const dayOfMonth = new Date().getDate();
-  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+
+  // Detect a newly added subscription to briefly highlight it on the dashboard.
+  const [justAddedId, setJustAddedId] = useState<string | null>(null);
+  const prevCountRef = useRef(subscriptions.length);
+  useEffect(() => {
+    if (subscriptions.length > prevCountRef.current) {
+      const newest = subscriptions.reduce((a, b) =>
+        new Date(b.createdAt).getTime() > new Date(a.createdAt).getTime() ? b : a,
+      );
+      setJustAddedId(newest.id);
+    }
+    prevCountRef.current = subscriptions.length;
+  }, [subscriptions]);
+  useEffect(() => {
+    if (!justAddedId) return;
+    const t = setTimeout(() => setJustAddedId(null), 2600);
+    return () => clearTimeout(t);
+  }, [justAddedId]);
+
+  // Next renewal drives the "Next Renewal" card.
+  const next = useMemo(() => nextRenewal(subscriptions), [subscriptions]);
+  const daysToNext = next ? daysUntilRenewal(next) : null;
+  const nextProgress =
+    daysToNext != null ? Math.max(0, Math.min(100, ((30 - Math.min(daysToNext, 30)) / 30) * 100)) : 0;
   const isEmpty = subscriptions.length === 0;
+  const emptyHeroHeight = height < 740 ? 80 : 110;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -115,6 +143,7 @@ export default function Dashboard() {
           <AnimatedPressable
             style={[styles.headerIconBtn, { backgroundColor: isDark ? theme.surfaceContainer : '#F2F6FA' }]}
             pressedScale={0.88}
+            onPress={() => router.push(Routes.SETTINGS as any)}
             accessibilityLabel="Settings"
             accessibilityRole="button"
           >
@@ -126,6 +155,7 @@ export default function Dashboard() {
             style={[styles.headerIconBtn, { backgroundColor: isDark ? theme.surfaceContainer : '#F2F6FA' }]}
             accessibilityLabel="Notifications"
             accessibilityRole="button"
+            onPress={() => comingSoon('Notifications')}
             pressedScale={0.88}
           >
             <Icon name="bell.fill" size={20} color={theme.textSecondary} fallback="🔔" />
@@ -146,117 +176,102 @@ export default function Dashboard() {
             <View style={styles.emptySection}>
               <Image 
                   source={isDark ? require('../../../assets/images/hero_dark.webp') : require('../../../assets/images/hero_light.webp')} 
-                  style={{ width: '100%', height: 260 }} 
+                  style={{ width: '100%', height: emptyHeroHeight }} 
                   resizeMode="contain" 
                 />
 
               {/* Text Content */}
               <View style={styles.emptyTextWrap}>
                 <ThemedText
-                  style={{ fontSize: 22, fontWeight: '700', lineHeight: 28, color: theme.text, textAlign: 'center', marginBottom: 8 }}
+                  style={{ fontSize: 20, fontWeight: '700', lineHeight: 26, color: theme.text, textAlign: 'center', marginBottom: 4 }}
                 >
                   No subscriptions yet
                 </ThemedText>
                 <ThemedText
                   style={{
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: '400',
-                    lineHeight: 20,
+                    lineHeight: 18,
                     color: theme.textSecondary,
                     textAlign: 'center',
                   }}
                 >
-                  Connect your email, scan your SMS messages, or manually add subscriptions to start tracking recurring payments.
+                  Connect your email, scan payment SMS alerts, or manually add subscriptions to start tracking recurring payments.
                 </ThemedText>
               </View>
 
-              {/* Vertical Action Cards */}
+              {/* Action Grid/List */}
               <View style={{ width: '100%', gap: 12, marginTop: 12 }}>
-                {/* 1. Connect Gmail */}
+                {/* 1. Add Subscription (Primary Action) */}
                 <AnimatedPressable
-                    style={[styles.actionCard, { backgroundColor: isDark ? theme.surfaceContainer : '#F2F6FA' }]}
-                    onPress={() => {}}
-                    pressedScale={0.96}
-                  >
-                    <View style={styles.actionCardLeft}>
-                      <View style={[styles.actionCardIconBox, { backgroundColor: '#FFFFFF' }]}>
-                         <Icon name="envelope.fill" size={20} color="#EA4335" fallback="M" />
-                      </View>
-                      <View style={styles.actionCardText}>
-                        <ThemedText style={{ fontSize: 16, fontWeight: '600', color: theme.text }}>Connect Gmail</ThemedText>
-                        <ThemedText style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, lineHeight: 18 }}>
-                          Automatically detect subscriptions from receipts and renewal emails.
-                        </ThemedText>
-                      </View>
-                    </View>
-                    <Icon name="chevron.right" size={16} color={theme.textSecondary} fallback=">" />
-                </AnimatedPressable>
-
-                {/* 2. Scan SMS Messages */}
-                <AnimatedPressable
-                    style={[styles.actionCard, { backgroundColor: isDark ? theme.surfaceContainer : '#F2FAF5' }]}
-                    onPress={() => {}}
-                    pressedScale={0.96}
-                  >
-                    <View style={styles.actionCardLeft}>
-                      <View style={[styles.actionCardIconBox, { backgroundColor: '#FFFFFF' }]}>
-                         <Icon name="message.fill" size={20} color="#34A853" fallback="💬" />
-                      </View>
-                      <View style={styles.actionCardText}>
-                        <ThemedText style={{ fontSize: 16, fontWeight: '600', color: theme.text }}>Scan SMS Messages</ThemedText>
-                        <ThemedText style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, lineHeight: 18 }}>
-                          Find subscriptions from mobile money and bank payment alerts.
-                        </ThemedText>
-                      </View>
-                    </View>
-                    <Icon name="chevron.right" size={16} color={theme.textSecondary} fallback=">" />
-                </AnimatedPressable>
-
-                {/* 3. Add Subscription */}
-                <AnimatedPressable
-                    style={[styles.actionCard, { backgroundColor: isDark ? theme.surfaceContainer : '#F8F2FA' }]}
+                    style={[styles.actionCard, { backgroundColor: theme.primary }]}
                     onPress={() => router.push(Routes.ADD_SUBSCRIPTION as any)}
                     pressedScale={0.96}
+                    variant="glow"
+                    glowColor="rgba(160,213,124,0.30)"
+                    accessibilityLabel="Add first subscription"
+                    accessibilityRole="button"
                   >
                     <View style={styles.actionCardLeft}>
-                      <View style={[styles.actionCardIconBox, { backgroundColor: '#FFFFFF' }]}>
-                         <Icon name="plus" size={20} color="#9C27B0" fallback="+" />
+                      <View style={[styles.actionCardIconBox, { backgroundColor: hexToRgba(theme.onPrimary, 0.16) }]}>
+                         <Icon name="plus.circle.fill" size={20} color={theme.onPrimary} fallback="+" />
                       </View>
                       <View style={styles.actionCardText}>
-                        <ThemedText style={{ fontSize: 16, fontWeight: '600', color: theme.text }}>Add Subscription</ThemedText>
-                        <ThemedText style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, lineHeight: 18 }}>
+                        <ThemedText style={{ fontSize: 16, fontWeight: '700', color: theme.onPrimary }}>Add Subscription</ThemedText>
+                        <ThemedText style={{ fontSize: 12, color: hexToRgba(theme.onPrimary, 0.78), marginTop: 2 }}>
                           Manually add a subscription to start tracking.
                         </ThemedText>
                       </View>
                     </View>
-                    <Icon name="chevron.right" size={16} color={theme.textSecondary} fallback=">" />
+                    <Icon name="chevron.right" size={16} color={theme.onPrimary} fallback=">" />
                 </AnimatedPressable>
-              </View>
-            </View>
 
-            {/* Feature Highlights Grid */}
-            <View style={[styles.featureGrid, { backgroundColor: isDark ? theme.surfaceContainer : '#FFFFFF' }]}>
-              <View style={styles.featureItem}>
-                <Icon name="calendar" size={20} color="#3B82F6" fallback="Cal" />
-                <ThemedText style={styles.featureText}>Never miss a renewal</ThemedText>
-              </View>
-              <View style={[styles.featureDivider, { backgroundColor: theme.outlineVariant }]} />
-              
-              <View style={styles.featureItem}>
-                <Icon name="chart.bar.fill" size={20} color="#10B981" fallback="Chart" />
-                <ThemedText style={styles.featureText}>Track monthly spending</ThemedText>
-              </View>
-              <View style={[styles.featureDivider, { backgroundColor: theme.outlineVariant }]} />
-              
-              <View style={styles.featureItem}>
-                <Icon name="bell.fill" size={20} color="#F59E0B" fallback="Alert" />
-                <ThemedText style={styles.featureText}>Get cancellation reminders</ThemedText>
-              </View>
-              <View style={[styles.featureDivider, { backgroundColor: theme.outlineVariant }]} />
-              
-              <View style={styles.featureItem}>
-                <Icon name="chart.pie.fill" size={20} color="#8B5CF6" fallback="Trends" />
-                <ThemedText style={styles.featureText}>See spending trends</ThemedText>
+                {/* 2. Secondary Row Grid */}
+                <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                  {/* Gmail Sync */}
+                  <AnimatedPressable
+                      style={[styles.actionCardHalf, { backgroundColor: isDark ? theme.surfaceContainer : '#FCF6F6' }]}
+                      onPress={() => comingSoon('Gmail Sync')}
+                      pressedScale={0.95}
+                      accessibilityLabel="Connect Gmail"
+                      accessibilityRole="button"
+                    >
+                      <View style={[styles.soonBadge, { backgroundColor: isDark ? 'rgba(160,213,124,0.18)' : '#E8F5E9' }]}>
+                        <ThemedText style={{ fontSize: 8, fontWeight: '700', color: theme.primary, letterSpacing: 0.5 }}>SOON</ThemedText>
+                      </View>
+                      <View style={styles.actionCardHalfContent}>
+                        <View style={[styles.actionCardIconBoxHalf, { backgroundColor: isDark ? 'rgba(234,67,53,0.15)' : '#FFEBEE' }]}>
+                           <Icon name="envelope.fill" size={18} color="#EA4335" fallback="M" />
+                        </View>
+                        <View style={{ alignItems: 'center', marginTop: 4 }}>
+                          <ThemedText style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>Gmail Sync</ThemedText>
+                          <ThemedText style={{ fontSize: 10, color: theme.textSecondary, marginTop: 2, textAlign: 'center' }}>Scan email receipts</ThemedText>
+                        </View>
+                      </View>
+                  </AnimatedPressable>
+
+                  {/* Scan / Import from image or PDF */}
+                  <AnimatedPressable
+                      style={[styles.actionCardHalf, { backgroundColor: isDark ? theme.surfaceContainer : '#F5FDF7' }]}
+                      onPress={() => comingSoon('Scan / Import')}
+                      pressedScale={0.95}
+                      accessibilityLabel="Scan or import from image or PDF"
+                      accessibilityRole="button"
+                    >
+                      <View style={[styles.soonBadge, { backgroundColor: isDark ? 'rgba(160,213,124,0.18)' : '#E8F5E9' }]}>
+                        <ThemedText style={{ fontSize: 8, fontWeight: '700', color: theme.primary, letterSpacing: 0.5 }}>SOON</ThemedText>
+                      </View>
+                      <View style={styles.actionCardHalfContent}>
+                        <View style={[styles.actionCardIconBoxHalf, { backgroundColor: isDark ? 'rgba(52,168,83,0.15)' : '#E8F5E9' }]}>
+                           <Icon name="doc.viewfinder.fill" size={18} color="#34A853" fallback="📄" />
+                        </View>
+                        <View style={{ alignItems: 'center', marginTop: 4 }}>
+                          <ThemedText style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>Scan / Import</ThemedText>
+                          <ThemedText style={{ fontSize: 10, color: theme.textSecondary, marginTop: 2, textAlign: 'center' }}>From image or PDF</ThemedText>
+                        </View>
+                      </View>
+                  </AnimatedPressable>
+                </View>
               </View>
             </View>
           </>
@@ -264,7 +279,7 @@ export default function Dashboard() {
           // ══════════════════════════════════════════════════════════════════
           // POPULATED STATE
           // ══════════════════════════════════════════════════════════════════
-          <>
+          <Animated.View entering={FadeIn.duration(450)} style={{ gap: 24 }}>
             {/* 1. Hero spend card wrapped in FadeInDown */}
             <Animated.View entering={FadeInDown.delay(100).duration(200)}>
               <View
@@ -298,9 +313,9 @@ export default function Dashboard() {
                     </ThemedText>
                     {subscriptions.length > 0 && (
                       <View style={styles.trendRow}>
-                        <Icon name="arrow.up.forward" size={14} color={theme.primary} fallback="↑" />
+                        <Icon name="creditcard.fill" size={14} color={theme.primary} fallback="💳" />
                         <ThemedText type="small" style={{ color: theme.primary }}>
-                          +2% vs last month
+                          {subscriptions.length} active
                         </ThemedText>
                       </View>
                     )}
@@ -387,7 +402,7 @@ export default function Dashboard() {
                           borderColor: 'rgba(255,255,255,0.05)',
                         },
                       ]}
-                      onPress={() => router.push(Routes.SUBSCRIPTION_DETAIL as any)}
+                      onPress={() => router.push({ pathname: Routes.SUBSCRIPTION_DETAIL, params: { id: item.id } } as any)}
                       accessibilityLabel={`${item.name} renewal`}
                     >
                       <View
@@ -452,7 +467,8 @@ export default function Dashboard() {
                   price={`$${item.cost.toFixed(2)}`}
                   priceNote={item.billingCycle}
                   index={i}
-                  onPress={() => router.push(Routes.SUBSCRIPTION_DETAIL as any)}
+                  highlight={item.id === justAddedId}
+                  onPress={() => router.push({ pathname: Routes.SUBSCRIPTION_DETAIL, params: { id: item.id } } as any)}
                 />
               ))}
             </View>
@@ -472,18 +488,23 @@ export default function Dashboard() {
                 <ThemedText
                   style={{ fontSize: 12, fontWeight: '500', letterSpacing: 0.6, color: theme.textSecondary }}
                 >
-                  Monthly Billing Cycle
+                  Next Renewal
                 </ThemedText>
                 <ThemedText style={{ fontSize: 12, fontWeight: '500', color: theme.text }}>
-                  {dayOfMonth} / {daysInMonth} Days
+                  {next ? formatShortDate(next.renewalDate) : '—'}
                 </ThemedText>
               </View>
-              <ProgressBar
-                progress={(dayOfMonth / daysInMonth) * 100}
-                height={8}
-              />
+              <ProgressBar progress={nextProgress} height={8} />
+              {next && (
+                <ThemedText style={{ fontSize: 11, fontWeight: '500', color: theme.textSecondary, marginTop: 2 }}>
+                  {next.name} •{' '}
+                  {daysToNext != null && daysToNext <= 0
+                    ? 'due today'
+                    : `in ${daysToNext} day${daysToNext === 1 ? '' : 's'}`}
+                </ThemedText>
+              )}
             </View>
-          </>
+          </Animated.View>
         )}
       </ScrollView>
     </ThemedView>
@@ -576,35 +597,37 @@ const styles = StyleSheet.create({
   actionCardText: {
     flex: 1,
   },
-  featureGrid: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  featureItem: {
+  actionCardHalf: {
     flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
-  featureText: {
-    fontSize: 10,
-    fontWeight: '500',
-    textAlign: 'center',
-    lineHeight: 14,
+  soonBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
-  featureDivider: {
-    width: 1,
-    height: 40,
-    marginHorizontal: 4,
+  actionCardHalfContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCardIconBoxHalf: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   // --- Populated state ---
   heroCard: {

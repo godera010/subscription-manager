@@ -12,6 +12,7 @@ import { Routes } from '@/constants/routes';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useStore } from '@/store/use-store';
+import { daysUntilRenewal, formatShortDate } from '@/lib/subscriptions';
 
 const FILTERS = ['All', 'Active', 'Upcoming'] as const;
 type Filter = (typeof FILTERS)[number];
@@ -26,11 +27,18 @@ export default function SubscriptionsScreen() {
   const activeFilter: Filter = FILTERS[selectedFilter];
 
   const filtered = subscriptions.filter((sub) => {
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Active') return true;
-    if (activeFilter === 'Upcoming') return false;
-    return true;
+    if (activeFilter === 'Active') return sub.status === 'active';
+    if (activeFilter === 'Upcoming') {
+      const d = daysUntilRenewal(sub);
+      return d >= 0 && d <= 30;
+    }
+    return true; // All
   });
+
+  const headerLabel =
+    activeFilter === 'All'
+      ? `${subscriptions.length} Subscription${subscriptions.length !== 1 ? 's' : ''}`
+      : `${filtered.length} ${activeFilter}`;
 
   return (
     <ThemedView style={styles.container}>
@@ -47,7 +55,7 @@ export default function SubscriptionsScreen() {
         {/* ── Header row ─────────────────────────────────────────── */}
         <View style={styles.headerRow}>
           <ThemedText themeColor="textSecondary" style={{ fontSize: 13 }}>
-            {subscriptions.length} Active Subscription{subscriptions.length !== 1 ? 's' : ''}
+            {headerLabel}
           </ThemedText>
 
           <AnimatedPressable
@@ -131,8 +139,8 @@ export default function SubscriptionsScreen() {
               name={sub.name}
               subtitle={`${sub.plan || sub.category} • ${sub.billingCycle}`}
               price={`$${sub.cost.toFixed(2)}`}
-              priceNote={sub.renewalDate}
-              onPress={() => router.push(Routes.SUBSCRIPTION_DETAIL as any)}
+              priceNote={formatShortDate(sub.renewalDate)}
+              onPress={() => router.push({ pathname: Routes.SUBSCRIPTION_DETAIL, params: { id: sub.id } } as any)}
             />
           ))}
         </View>

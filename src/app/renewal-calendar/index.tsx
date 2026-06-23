@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -6,64 +7,65 @@ import { Icon } from '@/components/prism/Icon';
 import { TopBar } from '@/components/prism/TopBar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Routes } from '@/constants/routes';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useStore } from '@/store/use-store';
+import type { Subscription } from '@/types';
 
 const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const calendarDays = [
-  { day: 26, muted: true },
-  { day: 27, muted: true },
-  { day: 28, muted: true },
-  { day: 29, muted: true },
-  { day: 30, muted: true },
-  { day: 1 },
-  { day: 2 },
-  { day: 3, dot: '#a0d57c' },
-  { day: 4 },
-  { day: 5 },
-  { day: 6 },
-  { day: 7 },
-  { day: 8 },
-  { day: 9 },
-  { day: 10 },
-  { day: 11 },
-  { day: 12, active: true },
-  { day: 13 },
-  { day: 14 },
-  { day: 15 },
-  { day: 16, dot: '#ffb4ab' },
-  { day: 17 },
-  { day: 18 },
-  { day: 19 },
-  { day: 20 },
-  { day: 21 },
-  { day: 22 },
-  { day: 23, dot: '#a0d57c' },
-  { day: 24 },
-  { day: 25 },
-  { day: 26 },
-  { day: 27 },
-  { day: 28 },
-  { day: 29 },
-  { day: 30 },
-];
-
-const todayRenewals = [
-  { icon: 'film.fill', fallback: '🎬', name: 'Netflix Premium', category: 'Entertainment • Auto-pay', price: '$15.99', time: 'Renewing at 10:00 AM' },
-  { icon: 'icloud.fill', fallback: '☁️', name: 'Google One', category: 'Productivity • Cloud', price: '$2.99', time: 'Monthly Billing' },
-];
-
-const upcomingHighlight = {
-  icon: 'music.note',
-  fallback: '🎵',
-  name: 'Spotify Family Plan',
-  desc: 'Coming up on Oct 23rd',
-  price: '$16.99',
-};
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export default function RenewalCalendar() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const subscriptions = useStore((s) => s.subscriptions);
+  const categories = useStore((s) => s.categories);
+
+  const today = new Date();
+  const [offset, setOffset] = useState(0); // months from current
+  const view = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+  const year = view.getFullYear();
+  const month = view.getMonth();
+  const isCurrentMonth = offset === 0;
+
+  // Map day-of-month -> subscriptions renewing that day this month
+  const renewalsByDay = useMemo(() => {
+    const map: Record<number, Subscription[]> = {};
+    for (const sub of subscriptions) {
+      const d = new Date(sub.renewalDate);
+      if (isNaN(d.getTime())) continue;
+      if (d.getFullYear() === year && d.getMonth() === month) {
+        (map[d.getDate()] ??= []).push(sub);
+      }
+    }
+    return map;
+  }, [subscriptions, year, month]);
+
+  const renewalCount = useMemo(
+    () => Object.values(renewalsByDay).reduce((n, arr) => n + arr.length, 0),
+    [renewalsByDay],
+  );
+
+  const [selectedDay, setSelectedDay] = useState<number>(today.getDate());
+  const effectiveSelected = selectedDay;
+  const selectedRenewals = renewalsByDay[effectiveSelected] ?? [];
+
+  // Build grid: leading muted days + this month's days
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevMonthDays = new Date(year, month, 0).getDate();
+  const cells: { day: number; muted?: boolean }[] = [];
+  for (let i = firstWeekday - 1; i >= 0; i--) {
+    cells.push({ day: prevMonthDays - i, muted: true });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ day: d });
+  }
+
+  function catColor(sub: Subscription) {
+    return categories.find((c) => c.name === sub.category)?.color ?? theme.primary;
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -85,21 +87,21 @@ export default function RenewalCalendar() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.monthNav}>
-          <Pressable accessibilityLabel="Previous month">
+          <Pressable onPress={() => setOffset((o) => o - 1)} accessibilityLabel="Previous month" hitSlop={12}>
             <Icon name="chevron.left" size={24} color={theme.primary} fallback="‹" />
           </Pressable>
           <View style={styles.monthCenter}>
             <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-              October 2023
+              {MONTHS[month]} {year}
             </ThemedText>
             <ThemedText
               type="small"
               style={{ color: theme.primary, opacity: 0.8, textTransform: 'uppercase', letterSpacing: 1 }}
             >
-              3 Renewals Pending
+              {renewalCount} Renewal{renewalCount !== 1 ? 's' : ''}
             </ThemedText>
           </View>
-          <Pressable accessibilityLabel="Next month">
+          <Pressable onPress={() => setOffset((o) => o + 1)} accessibilityLabel="Next month" hitSlop={12}>
             <Icon name="chevron.right" size={24} color={theme.primary} fallback="›" />
           </Pressable>
         </View>
@@ -118,143 +120,102 @@ export default function RenewalCalendar() {
             ))}
           </View>
           <View style={styles.daysGrid}>
-            {calendarDays.map((day, i) => (
-              <View key={i} style={styles.dayCell}>
-                <View
-                  style={[
-                    styles.dayNum,
-                    day.active && {
-                      backgroundColor: theme.primary,
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    },
-                  ]}
+            {cells.map((cell, i) => {
+              const isToday = isCurrentMonth && !cell.muted && cell.day === today.getDate();
+              const isSelected = !cell.muted && cell.day === effectiveSelected;
+              const dayRenewals = cell.muted ? [] : (renewalsByDay[cell.day] ?? []);
+              const dot = dayRenewals[0] ? catColor(dayRenewals[0]) : undefined;
+              return (
+                <Pressable
+                  key={i}
+                  style={styles.dayCell}
+                  disabled={cell.muted}
+                  onPress={() => setSelectedDay(cell.day)}
+                  accessibilityLabel={`Day ${cell.day}`}
                 >
-                  <ThemedText
-                    type="default"
-                    style={[
-                      day.muted && { opacity: 0.4 },
-                      day.active && { color: '#153800', fontWeight: '700' },
-                    ]}
-                  >
-                    {day.day}
-                  </ThemedText>
-                </View>
-                {day.dot && (
                   <View
                     style={[
-                      styles.dot,
-                      { backgroundColor: day.dot },
+                      styles.dayNum,
+                      isSelected && {
+                        backgroundColor: isToday ? theme.primary : theme.surfaceContainerHighest,
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      },
                     ]}
-                  />
-                )}
-              </View>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.legend}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: 'rgba(160,213,124,0.6)' }]} />
-            <ThemedText type="small" themeColor="textSecondary">Paid</ThemedText>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: theme.error }]} />
-            <ThemedText type="small" themeColor="textSecondary">Unpaid</ThemedText>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: theme.primary }]} />
-            <ThemedText type="small" themeColor="textSecondary">Upcoming</ThemedText>
+                  >
+                    <ThemedText
+                      type="default"
+                      style={[
+                        cell.muted && { opacity: 0.4 },
+                        isSelected && isToday && { color: '#153800', fontWeight: '700' },
+                      ]}
+                    >
+                      {cell.day}
+                    </ThemedText>
+                  </View>
+                  {dot && <View style={[styles.dot, { backgroundColor: dot }]} />}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
         <View>
           <View style={styles.sectionRow}>
             <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-              Renewing Today
+              Renewing on {MONTHS[month].slice(0, 3)} {effectiveSelected}
             </ThemedText>
-            <View style={[styles.dateBadge, { backgroundColor: 'rgba(160,213,124,0.1)' }]}>
-              <ThemedText type="small" style={{ color: theme.primary }}>
-                Oct 12
+          </View>
+
+          {selectedRenewals.length === 0 ? (
+            <View style={[styles.emptyDay, { borderColor: 'rgba(255,255,255,0.05)' }]}>
+              <ThemedText type="small" themeColor="textSecondary">
+                No renewals on this day.
               </ThemedText>
             </View>
-          </View>
-
-          <View style={styles.renewalList}>
-            {todayRenewals.map((item, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.renewalCard,
-                  {
-                    backgroundColor: theme.surfaceContainer,
-                    borderColor: 'rgba(255,255,255,0.05)',
-                    borderLeftColor: theme.primary,
-                    borderLeftWidth: 4,
-                  },
-                ]}
-              >
-                <View style={styles.renewalRow}>
-                  <View style={styles.renewalLeft}>
-                    <View
-                      style={[
-                        styles.renewalIcon,
-                        { backgroundColor: theme.surfaceContainerHigh },
-                      ]}
-                    >
-                      <Icon name={item.icon} size={28} color={theme.primary} fallback={item.fallback} />
+          ) : (
+            <View style={styles.renewalList}>
+              {selectedRenewals.map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={[
+                    styles.renewalCard,
+                    {
+                      backgroundColor: theme.surfaceContainer,
+                      borderColor: 'rgba(255,255,255,0.05)',
+                      borderLeftColor: catColor(item),
+                      borderLeftWidth: 4,
+                    },
+                  ]}
+                  onPress={() => router.push({ pathname: Routes.SUBSCRIPTION_DETAIL, params: { id: item.id } } as any)}
+                >
+                  <View style={styles.renewalRow}>
+                    <View style={styles.renewalLeft}>
+                      <View style={[styles.renewalIcon, { backgroundColor: theme.surfaceContainerHigh }]}>
+                        <Icon name={item.icon} size={28} color={theme.primary} fallback={item.fallback ?? '📱'} />
+                      </View>
+                      <View>
+                        <ThemedText type="default" style={{ fontWeight: '600' }}>
+                          {item.name}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {item.category} • {item.billingCycle}
+                        </ThemedText>
+                      </View>
                     </View>
-                    <View>
-                      <ThemedText type="default" style={{ fontWeight: '600' }}>
-                        {item.name}
-                      </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {item.category}
+                    <View style={styles.renewalRight}>
+                      <ThemedText type="default" style={{ color: theme.primary }}>
+                        ${item.cost.toFixed(2)}
                       </ThemedText>
                     </View>
                   </View>
-                  <View style={styles.renewalRight}>
-                    <ThemedText type="default" style={{ color: theme.primary }}>
-                      {item.price}
-                    </ThemedText>
-                    <ThemedText type="small" style={{ color: 'rgba(160,213,124,0.7)' }}>
-                      {item.time}
-                    </ThemedText>
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        <View
-          style={[
-            styles.upcomingCard,
-            {
-              backgroundColor: 'rgba(160,213,124,0.03)',
-              borderColor: 'rgba(160,213,124,0.1)',
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.ucIcon,
-              { backgroundColor: 'rgba(160,213,124,0.15)' },
-            ]}
-          >
-            <Icon name="calendar" size={20} color={theme.primary} fallback="📅" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <ThemedText type="default" style={{ color: theme.primary, fontWeight: '500' }}>
-              {upcomingHighlight.name}
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {upcomingHighlight.desc} • {upcomingHighlight.price}
-            </ThemedText>
-          </View>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
     </ThemedView>
@@ -301,24 +262,19 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginTop: 2,
   },
-  legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 24,
-  },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
   sectionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 16,
   },
-  dateBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 24,
+  emptyDay: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 20,
+    alignItems: 'center',
   },
-  renewalList: { gap: 8, marginTop: 16 },
+  renewalList: { gap: 8 },
   renewalCard: {
     borderRadius: 12,
     padding: 16,
@@ -338,19 +294,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   renewalRight: { alignItems: 'flex-end' },
-  upcomingCard: {
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  ucIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

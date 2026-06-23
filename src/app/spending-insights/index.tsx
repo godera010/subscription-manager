@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useEffect, useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import Animated, {
   FadeInDown,
@@ -21,51 +22,54 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-
-const categoryBreakdown = [
-  { name: 'Streaming', percent: 55, amount: '$687.68', color: '#a0d57c' },
-  { name: 'Gaming', percent: 25, amount: '$312.13', color: '#abd28f' },
-  { name: 'Security', percent: 15, amount: '$187.28', color: '#c8c6c5' },
-  { name: 'Productivity', percent: 35, amount: '$45.00', color: '#a0d57c' },
-  { name: 'Entertainment', percent: 65, amount: '$120.00', color: '#abd28f' },
-];
-
-const insights = [
-  {
-    icon: 'calendar', fallback: '📅',
-    title: 'Next Payment',
-    desc: 'Spotify Premium • Jan 28',
-    amount: '$14.99',
-    color: '#a0d57c',
-  },
-  {
-    icon: 'arrow.down.right', fallback: '📉',
-    title: 'Reduced Spend',
-    desc: 'Gaming Subscriptions',
-    amount: '-$25.00',
-    color: '#abd28f',
-  },
-];
+import { useStore } from '@/store/use-store';
+import {
+  categoryBreakdown as buildBreakdown,
+  formatShortDate,
+  nextRenewal,
+  totalMonthlySpend,
+} from '@/lib/subscriptions';
 
 export default function SpendingInsights() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const subscriptions = useStore((s) => s.subscriptions);
+  const categories = useStore((s) => s.categories);
 
-  // Pulsing scale for the hero glow orb
-  const glowScale = useSharedValue(1);
-  glowScale.value = withRepeat(
-    withSequence(
-      withTiming(1.2, { duration: 2400 }),
-      withTiming(0.85, { duration: 2400 }),
-    ),
-    -1,
-    false,
+  const monthly = useMemo(() => totalMonthlySpend(subscriptions), [subscriptions]);
+  const yearly = monthly * 12;
+  const breakdown = useMemo(
+    () => buildBreakdown(subscriptions, categories),
+    [subscriptions, categories],
   );
+  const next = useMemo(() => nextRenewal(subscriptions), [subscriptions]);
+  const isEmpty = subscriptions.length === 0;
+
+  // Pulsing scale for the hero glow orb (started in an effect, not during render)
+  const glowScale = useSharedValue(1);
+  useEffect(() => {
+    glowScale.value = withRepeat(
+      withSequence(
+        withTiming(1.2, { duration: 2400 }),
+        withTiming(0.85, { duration: 2400 }),
+      ),
+      -1,
+      false,
+    );
+  }, []);
 
   const glowAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
     return { transform: [{ scale: glowScale.value }] };
   });
+
+  // Bars = each category's share of monthly spend (real data)
+  const barData = breakdown.slice(0, 6).map((c, i) => ({
+    label: c.name.length > 5 ? c.name.slice(0, 4) + '…' : c.name,
+    value: c.percent,
+    active: i === 0,
+    color: c.color,
+  }));
 
   return (
     <ThemedView style={styles.container}>
@@ -90,165 +94,175 @@ export default function SpendingInsights() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero card */}
-        <Animated.View
-          entering={FadeInDown.delay(80).springify().damping(18)}
-          style={[
-            styles.heroCard,
-            { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-          ]}
-        >
-          {/* Pulsing glow orb */}
-          <Animated.View
-            style={[
-              styles.heroGlow,
-              { backgroundColor: 'rgba(160,213,124,0.06)' },
-              glowAnimatedStyle,
-            ]}
-          />
-          <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
-            Trend Analysis
-          </ThemedText>
-          <View style={styles.heroRow}>
-            <ThemedText type="title" style={{ fontSize: 36 }}>
-              $1,248.50
+        {isEmpty ? (
+          <View style={styles.emptyState}>
+            <Icon name="chart.pie" size={48} color={theme.textSecondary} fallback="📊" />
+            <ThemedText type="subtitle" style={{ marginTop: 12 }}>No spending to analyze yet</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={{ textAlign: 'center', marginTop: 4 }}>
+              Add a few subscriptions and your spending breakdown will appear here.
             </ThemedText>
-            <View style={styles.trendBadge}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <Icon name="arrow.up.forward" size={12} color={theme.primary} fallback="↑" />
-                <ThemedText type="small" style={{ color: theme.primary }}>
-                  +12%
-                </ThemedText>
-              </View>
-            </View>
           </View>
-          <ThemedText type="small" themeColor="textSecondary">
-            vs last month
-          </ThemedText>
-          <View style={[styles.heroMeta, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
-            <View>
-              <ThemedText type="small" themeColor="textSecondary">Average Spend</ThemedText>
-              <ThemedText style={{ fontWeight: '500' }}>$1,120.00</ThemedText>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <ThemedText type="small" themeColor="textSecondary">Projected (Next)</ThemedText>
-              <ThemedText style={{ color: theme.primary, fontWeight: '500' }}>$1,310.00</ThemedText>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* Chart card */}
-        <Animated.View
-          entering={FadeInDown.delay(200).springify().damping(18)}
-          style={[
-            styles.chartCard,
-            { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-          ]}
-        >
-          <View style={styles.chartHeader}>
-            <ThemedText type="subtitle" style={{ fontSize: 20 }}>
-              Monthly Comparison
-            </ThemedText>
-            <View style={[styles.chartBadge, { backgroundColor: 'rgba(160,213,124,0.1)' }]}>
-              <ThemedText type="small" style={{ color: theme.primary }}>
-                Last 4 Months
-              </ThemedText>
-            </View>
-          </View>
-          <BarChart
-            data={[
-              { label: 'Oct', value: 60 },
-              { label: 'Nov', value: 45 },
-              { label: 'Dec', value: 85 },
-              { label: 'Jan', value: 75, active: true },
-            ]}
-          />
-        </Animated.View>
-
-        {/* Category breakdown */}
-        <Animated.View entering={FadeInDown.delay(300).springify().damping(18)}>
-          <ThemedText type="subtitle" style={{ fontSize: 20, marginBottom: 16 }}>
-            Category Breakdown
-          </ThemedText>
-          <View
-            style={[
-              styles.catCard,
-              { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
-            ]}
-          >
-            <View style={styles.donutSection}>
-              <View style={styles.donut}>
-                <View style={styles.donutInner}>
-                  <ThemedText type="small" themeColor="textSecondary">Total</ThemedText>
-                  <ThemedText style={{ fontWeight: '500' }}>$1.2k</ThemedText>
-                </View>
-              </View>
-              <View style={styles.donutLabels}>
-                {categoryBreakdown.slice(0, 3).map((cat, i) => (
-                  <View key={i} style={styles.donutLabelRow}>
-                    <View style={[styles.donutDot, { backgroundColor: cat.color }]} />
-                    <ThemedText type="small">{cat.name}</ThemedText>
-                    <ThemedText type="small" style={{ marginLeft: 'auto' }}>
-                      {cat.percent}%
-                    </ThemedText>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={[styles.catDivider, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
-              {categoryBreakdown.slice(3).map((cat, i) => (
-                <View key={i} style={styles.catRow}>
-                  <View style={styles.catLabelRow}>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {cat.name}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {cat.amount}
-                    </ThemedText>
-                  </View>
-                  <ProgressBar progress={cat.percent} color={cat.color} height={6} />
-                </View>
-              ))}
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* Insight cards — staggered FadeInRight */}
-        <View style={styles.insightList}>
-          {insights.map((item, i) => (
+        ) : (
+          <>
+            {/* Hero card */}
             <Animated.View
-              key={i}
-              entering={FadeInRight.delay(i * 100).springify().damping(18)}
+              entering={FadeInDown.delay(80).springify().damping(18)}
               style={[
-                styles.insightCard,
+                styles.heroCard,
                 { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
               ]}
             >
-              <View style={styles.insightLeft}>
-                <View
-                  style={[
-                    styles.insightIcon,
-                    { backgroundColor: theme.surfaceContainerHigh },
-                  ]}
-                >
-                  <Icon name={item.icon} size={20} color={item.color} fallback={item.fallback} />
-                </View>
+              <Animated.View
+                style={[styles.heroGlow, { backgroundColor: 'rgba(160,213,124,0.06)' }, glowAnimatedStyle]}
+              />
+              <ThemedText type="small" themeColor="textSecondary" style={{ textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+                Total Monthly Spend
+              </ThemedText>
+              <View style={styles.heroRow}>
+                <ThemedText type="title" style={{ fontSize: 36 }}>
+                  ${monthly.toFixed(2)}
+                </ThemedText>
+              </View>
+              <ThemedText type="small" themeColor="textSecondary">
+                across {subscriptions.length} subscription{subscriptions.length !== 1 ? 's' : ''}
+              </ThemedText>
+              <View style={[styles.heroMeta, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
                 <View>
-                  <ThemedText type="default" style={{ fontWeight: '500' }}>
-                    {item.title}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {item.desc}
+                  <ThemedText type="small" themeColor="textSecondary">Yearly Total</ThemedText>
+                  <ThemedText style={{ fontWeight: '500' }}>${yearly.toFixed(2)}</ThemedText>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <ThemedText type="small" themeColor="textSecondary">Next Renewal</ThemedText>
+                  <ThemedText style={{ color: theme.primary, fontWeight: '500' }}>
+                    {next ? formatShortDate(next.renewalDate) : '—'}
                   </ThemedText>
                 </View>
               </View>
-              <ThemedText style={{ color: item.color, fontWeight: '500' }}>
-                {item.amount}
-              </ThemedText>
             </Animated.View>
-          ))}
-        </View>
+
+            {/* Chart card — spend share by category */}
+            <Animated.View
+              entering={FadeInDown.delay(200).springify().damping(18)}
+              style={[
+                styles.chartCard,
+                { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+              ]}
+            >
+              <View style={styles.chartHeader}>
+                <ThemedText type="subtitle" style={{ fontSize: 20 }}>
+                  Spend by Category
+                </ThemedText>
+                <View style={[styles.chartBadge, { backgroundColor: 'rgba(160,213,124,0.1)' }]}>
+                  <ThemedText type="small" style={{ color: theme.primary }}>
+                    % of total
+                  </ThemedText>
+                </View>
+              </View>
+              <BarChart data={barData} />
+            </Animated.View>
+
+            {/* Category breakdown */}
+            <Animated.View entering={FadeInDown.delay(300).springify().damping(18)}>
+              <ThemedText type="subtitle" style={{ fontSize: 20, marginBottom: 16 }}>
+                Category Breakdown
+              </ThemedText>
+              <View
+                style={[
+                  styles.catCard,
+                  { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                ]}
+              >
+                <View style={styles.donutSection}>
+                  <View style={styles.donut}>
+                    <View style={styles.donutInner}>
+                      <ThemedText type="small" themeColor="textSecondary">Total</ThemedText>
+                      <ThemedText style={{ fontWeight: '500' }}>${monthly.toFixed(0)}</ThemedText>
+                    </View>
+                  </View>
+                  <View style={styles.donutLabels}>
+                    {breakdown.slice(0, 3).map((cat, i) => (
+                      <View key={i} style={styles.donutLabelRow}>
+                        <View style={[styles.donutDot, { backgroundColor: cat.color }]} />
+                        <ThemedText type="small">{cat.name}</ThemedText>
+                        <ThemedText type="small" style={{ marginLeft: 'auto' }}>
+                          {cat.percent}%
+                        </ThemedText>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={[styles.catDivider, { borderTopColor: 'rgba(255,255,255,0.05)' }]}>
+                  {breakdown.map((cat, i) => (
+                    <View key={i} style={styles.catRow}>
+                      <View style={styles.catLabelRow}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {cat.name} ({cat.count})
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          ${cat.amount.toFixed(2)}
+                        </ThemedText>
+                      </View>
+                      <ProgressBar progress={cat.percent} color={cat.color} height={6} />
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </Animated.View>
+
+            {/* Insight cards — derived from real data */}
+            <View style={styles.insightList}>
+              {next && (
+                <Animated.View
+                  entering={FadeInRight.delay(0).springify().damping(18)}
+                  style={[
+                    styles.insightCard,
+                    { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                  ]}
+                >
+                  <View style={styles.insightLeft}>
+                    <View style={[styles.insightIcon, { backgroundColor: theme.surfaceContainerHigh }]}>
+                      <Icon name="calendar" size={20} color={theme.primary} fallback="📅" />
+                    </View>
+                    <View>
+                      <ThemedText type="default" style={{ fontWeight: '500' }}>Next Payment</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {next.name} • {formatShortDate(next.renewalDate)}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  <ThemedText style={{ color: theme.primary, fontWeight: '500' }}>
+                    ${next.cost.toFixed(2)}
+                  </ThemedText>
+                </Animated.View>
+              )}
+              {breakdown[0] && (
+                <Animated.View
+                  entering={FadeInRight.delay(100).springify().damping(18)}
+                  style={[
+                    styles.insightCard,
+                    { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
+                  ]}
+                >
+                  <View style={styles.insightLeft}>
+                    <View style={[styles.insightIcon, { backgroundColor: theme.surfaceContainerHigh }]}>
+                      <Icon name="chart.pie.fill" size={20} color={breakdown[0].color} fallback="🥧" />
+                    </View>
+                    <View>
+                      <ThemedText type="default" style={{ fontWeight: '500' }}>Top Category</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {breakdown[0].name} • {breakdown[0].percent}% of spend
+                      </ThemedText>
+                    </View>
+                  </View>
+                  <ThemedText style={{ color: breakdown[0].color, fontWeight: '500' }}>
+                    ${breakdown[0].amount.toFixed(2)}
+                  </ThemedText>
+                </Animated.View>
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
     </ThemedView>
   );
@@ -258,6 +272,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, gap: 24, paddingTop: 16 },
+  emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80, paddingHorizontal: 24 },
   heroCard: {
     borderRadius: 16,
     padding: 24,
@@ -275,11 +290,6 @@ const styles = StyleSheet.create({
     borderRadius: 64,
   },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  trendBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
   heroMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',

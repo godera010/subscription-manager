@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   LayoutChangeEvent,
   ScrollView,
@@ -18,6 +18,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/prism/AnimatedPressable';
+import { DatePickerField } from '@/components/prism/DatePickerField';
 import { Icon } from '@/components/prism/Icon';
 import { TopBar } from '@/components/prism/TopBar';
 import { ThemedText } from '@/components/themed-text';
@@ -34,20 +35,25 @@ export default function AddSubscription() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const addSubscription = useStore((s) => s.addSubscription);
+  const updateSubscription = useStore((s) => s.updateSubscription);
   const categories = useStore((s) => s.categories);
 
-  // ── Form state ────────────────────────────────────────────────────────────
-  const [name, setName] = useState('');
-  const [cost, setCost] = useState('');
-  const [billingCycle, setBillingCycle] = useState<BillingCycle>('Monthly');
-  const [renewalDate, setRenewalDate] = useState('');
-  const [category, setCategory] = useState('');
+  // ── Edit mode ──────────────────────────────────────────────────────────────
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const existing = useStore((s) => (id ? s.subscriptions.find((x) => x.id === id) : undefined));
+  const editing = !!existing;
+
+  // ── Form state (pre-filled when editing) ───────────────────────────────────
+  const [name, setName] = useState(existing?.name ?? '');
+  const [cost, setCost] = useState(existing ? String(existing.cost) : '');
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>(existing?.billingCycle ?? 'Monthly');
+  const [renewalDate, setRenewalDate] = useState(existing?.renewalDate ?? '');
+  const [category, setCategory] = useState(existing?.category ?? '');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // ── Focus ring state ──────────────────────────────────────────────────────
   const [nameFocused, setNameFocused] = useState(false);
   const [costFocused, setCostFocused] = useState(false);
-  const [dateFocused, setDateFocused] = useState(false);
 
   // ── Shake animation ───────────────────────────────────────────────────────
   const shakeX = useSharedValue(0);
@@ -77,6 +83,15 @@ export default function AddSubscription() {
     pillLeft.value = withTiming(idx * segW, { duration: 200 });
   }
 
+  // Snap the pill under the current cycle once the row has measured (e.g. on edit).
+  useEffect(() => {
+    if (cycleWidth > 0) {
+      const idx = BILLING_CYCLES.indexOf(billingCycle);
+      pillLeft.value = (cycleWidth / BILLING_CYCLES.length) * idx;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cycleWidth]);
+
   // ── Validation ────────────────────────────────────────────────────────────
   function validate() {
     const errs: Record<string, string> = {};
@@ -101,15 +116,18 @@ export default function AddSubscription() {
       );
       return;
     }
-    addSubscription({
+    const fields = {
       name: name.trim(),
-      icon: 'app.badge.fill',
-      fallback: '📱',
       cost: parseFloat(parseFloat(cost).toFixed(2)),
       billingCycle,
       category,
       renewalDate,
-    });
+    };
+    if (editing && existing) {
+      updateSubscription(existing.id, fields);
+    } else {
+      addSubscription({ ...fields, icon: 'app.badge.fill', fallback: '📱' });
+    }
     router.back();
   }
 
@@ -118,7 +136,7 @@ export default function AddSubscription() {
   return (
     <ThemedView style={styles.container}>
       <TopBar
-        title="Add Subscription"
+        title={editing ? 'Edit Subscription' : 'Add Subscription'}
         left={
           <AnimatedPressable
             onPress={() => router.back()}
@@ -142,14 +160,14 @@ export default function AddSubscription() {
         keyboardShouldPersistTaps="handled"
       >
         {/* ── Form card ──────────────────────────────────────────── */}
-        <Animated.View
-          entering={FadeInDown.delay(80).duration(250)}
+        <Animated.View entering={FadeInDown.delay(80).duration(250)}>
+         <Animated.View
           style={[
             formCardAnimatedStyle,
             styles.formCard,
             { backgroundColor: theme.surfaceContainer, borderColor: 'rgba(255,255,255,0.05)' },
           ]}
-        >
+         >
           {/* Subscription Name */}
           <Field label="Subscription Name" error={errors.name}>
             <TextInput
@@ -242,22 +260,11 @@ export default function AddSubscription() {
 
           {/* Next Renewal Date */}
           <Field label="Next Renewal Date" error={errors.renewalDate}>
-            <TextInput
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor="rgba(194,201,184,0.5)"
-              style={[
-                styles.input,
-                {
-                  color: theme.text,
-                  backgroundColor: theme.surfaceContainerHighest,
-                  borderColor: dateFocused ? theme.primary : 'rgba(255,255,255,0.1)',
-                },
-              ]}
+            <DatePickerField
               value={renewalDate}
-              onChangeText={setRenewalDate}
-              onFocus={() => setDateFocused(true)}
-              onBlur={() => setDateFocused(false)}
-              accessibilityLabel="Next renewal date"
+              onChange={setRenewalDate}
+              placeholder="Select renewal date"
+              hasError={!!errors.renewalDate}
             />
           </Field>
 
@@ -296,9 +303,10 @@ export default function AddSubscription() {
             accessibilityRole="button"
           >
             <ThemedText style={{ color: theme.onPrimaryContainer, fontWeight: '600', fontSize: 18 }}>
-              Create Subscription
+              {editing ? 'Save Changes' : 'Create Subscription'}
             </ThemedText>
           </AnimatedPressable>
+         </Animated.View>
         </Animated.View>
 
         {/* ── Security card ───────────────────────────────────────── */}

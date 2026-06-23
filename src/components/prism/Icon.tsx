@@ -1,7 +1,7 @@
 import React from 'react';
 import { SymbolView } from 'expo-symbols';
 import type { SymbolViewProps } from 'expo-symbols';
-import { ColorValue, Platform } from 'react-native';
+import { ColorValue, Platform, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
@@ -14,6 +14,8 @@ const SF_SYMBOL_TO_MATERIAL: Record<string, keyof typeof MaterialIcons.glyphMap>
   'gearshape.fill': 'settings',
   'plus': 'add',
   'plus.circle.fill': 'add-circle',
+  'message.fill': 'message',
+  'envelope.fill': 'mail',
   'lock.fill': 'lock',
   'sparkle': 'auto-awesome',
   'chart.bar.fill': 'bar-chart',
@@ -59,9 +61,10 @@ type IconProps = {
   fallback?: string;
   type?: SymbolViewProps['type'];
   weight?: SymbolViewProps['weight'];
+  style?: any;
 };
 
-export const Icon = React.memo(function Icon({ name, size = 24, color, fallback, type, weight }: IconProps) {
+export const Icon = React.memo(function Icon({ name, size = 24, color, fallback, type, weight, style }: IconProps) {
   if (Platform.OS === 'ios') {
     return (
       <SymbolView
@@ -70,6 +73,7 @@ export const Icon = React.memo(function Icon({ name, size = 24, color, fallback,
         tintColor={color}
         type={type}
         weight={weight}
+        style={StyleSheet.flatten([{ backgroundColor: 'transparent' }, style])}
         fallback={
           fallback ? (
             <ThemedText style={{ fontSize: size, color: color as string }}>{fallback}</ThemedText>
